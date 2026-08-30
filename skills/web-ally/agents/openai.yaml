@@ -1,0 +1,4 @@
+interface:
+  display_name: "Web Ally"
+  short_description: "Make websites voice- and text-operable"
+  default_prompt: "Use $web-ally to add Web Ally tools and a safe model handshake to this website."
