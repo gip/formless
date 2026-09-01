@@ -39,6 +39,27 @@ function tool(
 
 export function createCanvasTools(environment: ToolEnvironment): ToolDefinition[] {
   return [
+    tool(
+      'get_website_summary',
+      'Get website summary',
+      'Call this first when you connect to the website. Explains what WebAlly is and how to use its tools.',
+      true,
+      emptySchema,
+      async () => ({
+        ok: true,
+        website: {
+          name: 'WebAlly',
+          summary: 'WebAlly is an agent-ready interface lab. It runs an editable React application inside a live WebContainer preview and exposes project, UI, and user-message controls through WebMCP.',
+        },
+        startupInstructions: [
+          'Inspect the project with list_project_files, then read only the files you need with read_project_files.',
+          'Inspect the live preview with get_ui_elements. Use highlight_ui_elements to direct the user\'s attention, and clear_ui_highlights when the emphasis is no longer useful.',
+          'Apply requested code edits with apply_project_changes using the latest project revision and complete file contents. Changes are limited to editable app files, validated atomically, and rolled back if validation fails.',
+          'Call reset_project only when the user explicitly asks to restore the starter project.',
+          'While waiting for typed or spoken requests, call poll_user_messages about every two seconds with the last message ID as afterId.',
+        ],
+      }),
+    ),
     tool('list_project_files', 'List project files', 'Lists source files in the live WebContainer project with revision, editability, size, and hash.', true, emptySchema, async () => ({ ok: true, ...await environment.project.listFiles() })),
     tool(
       'read_project_files',
