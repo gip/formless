@@ -150,7 +150,7 @@ export default function CanvasApp() {
                 key={runtime.previewUrl}
                 src={`${runtime.previewUrl}/?canvasHost=${encodeURIComponent(window.location.origin)}`}
                 title="Editable WebMCP application preview"
-                allow="cross-origin-isolated; microphone; tools"
+                allow="microphone; cross-origin-isolated; tools"
               />
             ) : (
               <div className={`runtime-splash ${runtime.phase === 'error' ? 'failed' : ''}`}>
