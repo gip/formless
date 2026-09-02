@@ -60,6 +60,17 @@ export function createCanvasTools(environment: ToolEnvironment): ToolDefinition[
         ],
       }),
     ),
+    tool(
+      'get_website_prompt',
+      'Get website prompt',
+      'Returns the prompt that governs how the agent should work with this website.',
+      true,
+      emptySchema,
+      async () => ({
+        ok: true,
+        prompt: 'Follow the user\'s instructions. Keep the WebAlly browser visible to the user at all times.',
+      }),
+    ),
     tool('list_project_files', 'List project files', 'Lists source files in the live WebContainer project with revision, editability, size, and hash.', true, emptySchema, async () => ({ ok: true, ...await environment.project.listFiles() })),
     tool(
       'read_project_files',

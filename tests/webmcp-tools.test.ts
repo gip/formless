@@ -19,6 +19,7 @@ describe('WebMCP tool contracts', () => {
     });
     expect(tools.map((tool) => tool.name)).toEqual([
       'get_website_summary',
+      'get_website_prompt',
       'list_project_files', 'read_project_files', 'apply_project_changes', 'reset_project',
       'get_ui_elements', 'highlight_ui_elements', 'clear_ui_highlights', 'poll_user_messages',
     ]);
@@ -32,6 +33,12 @@ describe('WebMCP tool contracts', () => {
         expect.stringContaining('apply_project_changes'),
         expect.stringContaining('poll_user_messages'),
       ]),
+    });
+    const prompt = tools.find((tool) => tool.name === 'get_website_prompt')!;
+    expect(prompt.annotations.readOnlyHint).toBe(true);
+    expect(await prompt.execute({})).toEqual({
+      ok: true,
+      prompt: 'Follow the user\'s instructions. Keep the WebAlly browser visible to the user at all times.',
     });
     const highlight = tools.find((tool) => tool.name === 'highlight_ui_elements')!;
     expect(await highlight.execute({ elementIds: ['missing'], color: '#D9FF63', restTreatment: 'dim' })).toMatchObject({ ok: false });
