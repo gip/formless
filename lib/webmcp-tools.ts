@@ -1,14 +1,26 @@
 'use client';
 
 import type { ProjectController } from './project-controller';
-import type { ToolDefinition, UiElementDescriptor } from './canvas-types';
+import type { AppVersion, ToolDefinition, UiElementDescriptor } from './canvas-types';
 import type { UserMessageQueue } from './message-queue';
+
+/**
+ * Published-version operations, implemented by `CanvasApp` so the header and
+ * the WebMCP tools drive exactly the same code path.
+ */
+export interface VersionOperations {
+  list: () => Promise<AppVersion[]>;
+  publish: (input: { name: string; description?: string }) => Promise<AppVersion>;
+  switchTo: (baseRevision: number, versionId: string) => Promise<{ revision: number; version: AppVersion }>;
+  current: () => { id: string | null; name: string; dirty: boolean };
+}
 
 interface ToolEnvironment {
   project: ProjectController;
   messages: UserMessageQueue;
   getElements: () => UiElementDescriptor[];
   sendPreviewCommand: (type: 'highlight' | 'clear-highlight', payload?: Record<string, unknown>) => void;
+  versions: VersionOperations;
 }
 
 const emptySchema = { type: 'object', properties: {}, additionalProperties: false };
@@ -56,6 +68,7 @@ export function createCanvasTools(environment: ToolEnvironment): ToolDefinition[
           'Inspect the live preview with get_ui_elements. Use highlight_ui_elements to direct the user\'s attention, and clear_ui_highlights when the emphasis is no longer useful.',
           'Apply requested code edits with apply_project_changes using the latest project revision and complete file contents. Changes are limited to editable app files, validated atomically, and rolled back if validation fails.',
           'Call reset_project only when the user explicitly asks to restore the starter project.',
+          'When the user is happy with an interface, offer to publish it with publish_app_version so other visitors can load it. Use list_app_versions to see what already exists and switch_app_version to load one. Both publishing and switching are public or destructive, so confirm with the user first.',
           'While waiting for typed or spoken requests, call poll_user_messages about every two seconds with the last message ID as afterId.',
         ],
       }),
@@ -199,6 +212,64 @@ export function createCanvasTools(environment: ToolEnvironment): ToolDefinition[
         additionalProperties: false,
       },
       async ({ afterId }) => ({ ok: true, ...environment.messages.poll(typeof afterId === 'number' ? afterId : 0) }),
+    ),
+    tool(
+      'list_app_versions',
+      'List app versions',
+      'Lists the published versions of this app that anyone can switch to, and reports which one the live preview is currently showing.',
+      true,
+      emptySchema,
+      async () => ({ ok: true, current: environment.versions.current(), versions: await environment.versions.list() }),
+    ),
+    tool(
+      'publish_app_version',
+      'Publish app version',
+      'Publishes the current editable app as a named version that every visitor can see and load. Publishing is public and permanent until you unpublish it, so ask the user before calling this.',
+      false,
+      {
+        type: 'object',
+        properties: {
+          baseRevision: { type: 'integer', minimum: 0 },
+          name: { type: 'string', minLength: 1, maxLength: 60 },
+          description: { type: 'string', maxLength: 280 },
+          confirm: { type: 'boolean', const: true },
+        },
+        required: ['baseRevision', 'name', 'confirm'],
+        additionalProperties: false,
+      },
+      async ({ baseRevision, name, description, confirm }) => {
+        if (confirm !== true) throw new Error('Publishing requires confirm: true.');
+        if (typeof name !== 'string' || !name.trim()) throw new Error('A version name is required.');
+        if (description !== undefined && typeof description !== 'string') throw new Error('description must be a string.');
+        // Guard the revision here as well as in the store: publishing the wrong
+        // revision is not rolled back once it is public.
+        const { revision } = await environment.project.listFiles();
+        if (baseRevision !== revision) throw new Error(`Revision conflict. Current revision is ${revision}.`);
+        return { ok: true, version: await environment.versions.publish({ name, description }) };
+      },
+    ),
+    tool(
+      'switch_app_version',
+      'Switch app version',
+      'Replaces the live preview with a published version. The current working copy is overwritten, so confirm with the user first — publish their unsaved work before switching if they want to keep it.',
+      false,
+      {
+        type: 'object',
+        properties: {
+          baseRevision: { type: 'integer', minimum: 0 },
+          versionId: { type: 'string', pattern: '^[0-9a-f]{16}$' },
+          confirm: { type: 'boolean', const: true },
+        },
+        required: ['baseRevision', 'versionId', 'confirm'],
+        additionalProperties: false,
+      },
+      async ({ baseRevision, versionId, confirm }) => {
+        if (confirm !== true) throw new Error('Switching versions requires confirm: true.');
+        if (typeof versionId !== 'string' || !/^[0-9a-f]{16}$/.test(versionId)) throw new Error('versionId must be a published version id.');
+        if (typeof baseRevision !== 'number') throw new Error('baseRevision is required.');
+        const { revision, version } = await environment.versions.switchTo(baseRevision, versionId);
+        return { ok: true, revision, version };
+      },
     ),
   ];
 }

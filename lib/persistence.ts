@@ -10,6 +10,11 @@ export interface ProjectSnapshot {
   revision: number;
   files: FileMap;
   savedAt: string;
+  /**
+   * The published version this working copy started from, or null for the
+   * starter. Optional so snapshots written before versions existed stay valid.
+   */
+  versionId?: string | null;
 }
 
 function openDatabase(): Promise<IDBDatabase> {
@@ -41,7 +46,7 @@ export async function loadSnapshot(): Promise<ProjectSnapshot | null> {
   });
 }
 
-export async function saveSnapshot(revision: number, files: FileMap): Promise<void> {
+export async function saveSnapshot(revision: number, files: FileMap, versionId: string | null = null): Promise<void> {
   if (typeof indexedDB === 'undefined') return;
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
@@ -51,6 +56,7 @@ export async function saveSnapshot(revision: number, files: FileMap): Promise<vo
       revision,
       files,
       savedAt: new Date().toISOString(),
+      versionId,
     } satisfies ProjectSnapshot, SNAPSHOT_KEY);
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error);

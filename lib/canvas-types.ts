@@ -37,6 +37,30 @@ export interface UiElementDescriptor {
   kind: string;
 }
 
+/**
+ * A published app version. Only the editable overlay is stored — every
+ * protected file is re-derived from `STARTER_FILES`, so a version can never
+ * carry a modified bridge, `package.json`, or build script.
+ */
+export interface AppVersion {
+  id: string;
+  name: string;
+  description: string;
+  contentHash: string;
+  authorLabel: string;
+  /** True when this browser's publisher token owns the version. */
+  mine: boolean;
+  /** `starterPackageHash()` at publish time; a mismatch is a warning, not a block. */
+  starterHash: string;
+  fileCount: number;
+  bytes: number;
+  createdAt: string;
+}
+
+export interface AppVersionDetail extends AppVersion {
+  files: FileMap;
+}
+
 export interface UserMessage {
   id: number;
   text: string;
