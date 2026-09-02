@@ -1,6 +1,6 @@
 # WebAlly
 
-WebAlly is a preview-first demo of a browser agent inspecting and updating a live React project. The outer host boots a WebContainer, mounts the protected starter project, and exposes eight WebMCP tools. The editable project runs in a cross-origin iframe and reports its instrumented UI elements to the host through a versioned bridge.
+WebAlly is a preview-first demo of a browser agent inspecting and updating a live React project. The outer host boots a WebContainer, mounts the protected starter project, and exposes nine WebMCP tools. The editable project runs in a cross-origin iframe and reports its instrumented UI elements to the host through a versioned bridge.
 
 ## Run locally
 
@@ -13,6 +13,7 @@ Open `http://localhost:3000` in a Chromium browser. WebContainers require cross-
 
 ## Tools
 
+- `get_website_summary` (the startup entry point for agents)
 - `list_project_files`
 - `read_project_files`
 - `apply_project_changes`

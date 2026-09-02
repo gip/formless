@@ -424,6 +424,7 @@ window.addEventListener('load', () => {
 import { AgentButton, AgentInput, AgentTarget, sendUserMessage } from './agent/bridge';
 
 type RecognitionEvent = Event & { results: { length: number; [key: number]: { isFinal: boolean; 0: { transcript: string } } } };
+type RecognitionErrorEvent = Event & { error: string; message?: string };
 type Recognition = {
   lang: string;
   interimResults: boolean;
@@ -432,7 +433,7 @@ type Recognition = {
   stop(): void;
   onresult: ((event: RecognitionEvent) => void) | null;
   onend: (() => void) | null;
-  onerror: (() => void) | null;
+  onerror: ((event: RecognitionErrorEvent) => void) | null;
 };
 
 declare global {
@@ -481,9 +482,9 @@ export default function App() {
       }
     };
     recognition.onend = () => setListening(false);
-    recognition.onerror = () => {
+    recognition.onerror = (event) => {
       setListening(false);
-      setNotice('Microphone access failed. Check your browser permission and try again.');
+      setNotice('Speech recognition failed: ' + (event.error || 'unknown error') + '.');
     };
     recognitionRef.current = recognition;
     recognition.start();

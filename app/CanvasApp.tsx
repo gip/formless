@@ -38,7 +38,7 @@ export default function CanvasApp() {
   const [coverage, setCoverage] = useState<'waiting' | 'valid' | 'invalid'>('waiting');
   const [nativeWebMcp, setNativeWebMcp] = useState(false);
   const [tools, setTools] = useState<ToolDefinition[]>([]);
-  const [selectedTool, setSelectedTool] = useState('get_ui_elements');
+  const [selectedTool, setSelectedTool] = useState('get_website_summary');
   const [toolInput, setToolInput] = useState('{}');
   const [toolOutput, setToolOutput] = useState('Run a tool to inspect its response.');
   const [toolBusy, setToolBusy] = useState(false);
@@ -150,7 +150,7 @@ export default function CanvasApp() {
                 key={runtime.previewUrl}
                 src={`${runtime.previewUrl}/?canvasHost=${encodeURIComponent(window.location.origin)}`}
                 title="Editable WebMCP application preview"
-                allow="cross-origin-isolated; microphone; tools"
+                allow="microphone; cross-origin-isolated; tools"
               />
             ) : (
               <div className={`runtime-splash ${runtime.phase === 'error' ? 'failed' : ''}`}>

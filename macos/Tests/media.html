@@ -1,0 +1,119 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Media capability probe</title>
+<style>body{font:14px/1.6 -apple-system,system-ui,sans-serif;margin:2rem;max-width:44rem}pre{background:#f4f4f4;padding:.75rem;border-radius:6px;overflow:auto}</style>
+<h1>Media capability probe</h1>
+<p>Registers WebMCP tools that report microphone, speech recognition, and audio output state.
+Run them from the sidebar, or headlessly with <code>--selfcheck --invoke media.capabilities</code>.</p>
+<pre id="out">Registering…</pre>
+<script type="module">
+  const out = document.getElementById('out');
+  const show = (value) => { out.textContent = JSON.stringify(value, null, 2); };
+
+  const withTimeout = (promise, ms, label) =>
+    Promise.race([
+      promise,
+      new Promise((resolve) => setTimeout(() => resolve({ timedOut: true, label }), ms)),
+    ]);
+
+  const capabilities = async () => {
+    const devices = navigator.mediaDevices
+      ? await navigator.mediaDevices.enumerateDevices().catch((e) => String(e))
+      : null;
+    let audioContextState = null;
+    try {
+      const Ctx = window.AudioContext ?? window.webkitAudioContext;
+      const ctx = new Ctx();
+      audioContextState = ctx.state;
+      await ctx.close();
+    } catch (error) {
+      audioContextState = `error: ${error.message}`;
+    }
+    return {
+      isSecureContext: window.isSecureContext,
+      origin: location.origin,
+      speechRecognition: typeof window.SpeechRecognition,
+      webkitSpeechRecognition: typeof window.webkitSpeechRecognition,
+      speechSynthesisVoices: window.speechSynthesis?.getVoices().length ?? null,
+      mediaDevices: typeof navigator.mediaDevices,
+      getUserMedia: typeof navigator.mediaDevices?.getUserMedia,
+      audioInputs: Array.isArray(devices) ? devices.filter((d) => d.kind === 'audioinput').length : devices,
+      audioContextState,
+    };
+  };
+
+  const microphone = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) return { ok: false, error: 'getUserMedia is unavailable' };
+    const attempt = navigator.mediaDevices
+      .getUserMedia({ audio: true })
+      .then((stream) => {
+        const track = stream.getAudioTracks()[0];
+        const info = { ok: true, label: track.label, settings: track.getSettings() };
+        stream.getTracks().forEach((t) => t.stop());
+        return info;
+      })
+      .catch((error) => ({ ok: false, error: `${error.name}: ${error.message}` }));
+    return withTimeout(attempt, 12000, 'getUserMedia');
+  };
+
+  const speech = async () => {
+    const Recognition = window.SpeechRecognition ?? window.webkitSpeechRecognition;
+    if (!Recognition) return { ok: false, error: 'SpeechRecognition is undefined in this engine' };
+    const recognition = new Recognition();
+    recognition.lang = 'en-US';
+    recognition.continuous = false;
+    const firstEvent = new Promise((resolve) => {
+      recognition.onstart = () => resolve({ ok: true, event: 'start' });
+      recognition.onaudiostart = () => resolve({ ok: true, event: 'audiostart' });
+      recognition.onerror = (event) => resolve({ ok: false, event: 'error', error: event.error });
+    });
+    try {
+      recognition.start();
+    } catch (error) {
+      return { ok: false, error: `${error.name}: ${error.message}` };
+    }
+    const result = await withTimeout(firstEvent, 12000, 'speechrecognition');
+    try { recognition.abort(); } catch { /* already stopped */ }
+    return result;
+  };
+
+  const beep = async () => {
+    const Ctx = window.AudioContext ?? window.webkitAudioContext;
+    const ctx = new Ctx();
+    // An AudioContext created outside a user gesture starts suspended; resuming only
+    // succeeds when the host allows autoplay.
+    if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    gain.gain.value = 0.08;
+    oscillator.frequency.value = 660;
+    oscillator.connect(gain).connect(ctx.destination);
+    oscillator.start();
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    oscillator.stop();
+    // No user gesture happened, so a running state proves autoplay is unblocked.
+    const state = ctx.state;
+    await ctx.close();
+    return { ok: state === 'running', audioContextState: state };
+  };
+
+  const tools = [
+    ['media.capabilities', 'Reports speech, microphone, and audio-output support without prompting.', capabilities, true],
+    ['media.microphone', 'Requests microphone access with getUserMedia and reports the track.', microphone, false],
+    ['media.speech', 'Starts Web Speech recognition and reports the first event or error.', speech, false],
+    ['media.beep', 'Plays a 350ms tone through the AudioContext with no user gesture.', beep, false],
+  ];
+
+  if (document.modelContext?.registerTool) {
+    for (const [name, description, execute, readOnlyHint] of tools) {
+      await document.modelContext.registerTool({
+        name,
+        description,
+        inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+        annotations: { readOnlyHint, untrustedContentHint: false },
+        execute,
+      });
+    }
+  }
+  show(await capabilities());
+</script>

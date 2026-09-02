@@ -35,6 +35,10 @@ yarn-error.log*
 .env*
 .dev.vars*
 
+# swift (macos/)
+/macos/.build/
+/macos/build/
+
 # deployment and generated files
 .vercel
 next-env.d.ts

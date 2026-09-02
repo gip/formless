@@ -1,0 +1,61 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>WebMCP bridge fixture</title>
+<style>
+  body { font: 14px/1.5 -apple-system, system-ui, sans-serif; margin: 2rem; max-width: 40rem; }
+  code { background: #f2f2f2; padding: 0 .25rem; border-radius: 3px; }
+  li { margin: .25rem 0; }
+</style>
+<h1>WebMCP bridge fixture</h1>
+<p id="status">Registering…</p>
+<ul>
+  <li><code>fixture.echo</code> — permanent, echoes its input.</li>
+  <li><code>fixture.temporary</code> — unregistered 3 seconds after load via <code>AbortSignal</code>.</li>
+  <li><code>fixture.explode</code> — always throws, to check error reporting.</li>
+</ul>
+<script type="module">
+  const status = document.getElementById('status');
+  if (!document.modelContext?.registerTool) {
+    status.textContent = 'document.modelContext is not available: this browser has no WebMCP.';
+  } else {
+    const permanent = { type: 'object', properties: { message: { type: 'string' } }, additionalProperties: false };
+
+    await document.modelContext.registerTool({
+      name: 'fixture.echo',
+      title: 'Echo',
+      description: 'Returns the message it was given.',
+      inputSchema: permanent,
+      annotations: { readOnlyHint: true, untrustedContentHint: false },
+      async execute(input) {
+        return { ok: true, echoed: input?.message ?? null, at: new Date().toISOString() };
+      },
+    });
+
+    await document.modelContext.registerTool({
+      name: 'fixture.explode',
+      description: 'Always throws, so the console can show a failed invocation.',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      async execute() {
+        throw new Error('Intentional fixture failure.');
+      },
+    });
+
+    const temporary = new AbortController();
+    await document.modelContext.registerTool({
+      name: 'fixture.temporary',
+      description: 'Disappears three seconds after page load.',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
+      async execute(_input, { signal }) {
+        signal.throwIfAborted();
+        return { ok: true, stillHere: true };
+      },
+    }, { signal: temporary.signal });
+
+    status.textContent = '3 tools registered. fixture.temporary disappears in 3s.';
+    setTimeout(() => {
+      temporary.abort();
+      status.textContent = 'fixture.temporary was aborted: the sidebar should now show 2 tools.';
+    }, 3000);
+  }
+</script>

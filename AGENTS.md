@@ -15,6 +15,14 @@ pnpm test:watch
 pnpm test:e2e             # playwright, chromium only, auto-starts dev server
 ```
 
+```bash
+cd macos && make app       # -> macos/build/WebMCP Browser.app (Swift, independent of pnpm)
+cd macos && make test      # node contract test for the WebMCP polyfill
+cd macos && make check     # end-to-end bridge check inside a real WKWebView (needs a GUI session)
+cd macos && make media-check  # microphone, Web Speech, and audio output (needs TCC grants)
+cd macos && make reload-check # repeated-load regression test (needs pnpm dev on :3000)
+```
+
 Single unit test: `pnpm vitest run tests/project-policy.test.ts` (or `-t "substring of it() name"`).
 Single e2e test: `pnpm playwright test -g "queues a final mocked speech transcript"`.
 Set `PLAYWRIGHT_SKIP_WEBSERVER=1` to run e2e against an already-running dev server.
@@ -27,6 +35,13 @@ Regenerating the prebuilt guest runtime (only when `lib/starter-project.ts`'s `p
 
 - `app/`, `lib/`, `public/`, and `tests/` implement and verify the WebAlly application.
 - `skills/web-ally/` is a reusable Codex skill and protocol kit. It is not imported by or bundled into the WebAlly runtime.
+- `macos/` is a standalone SwiftPM app — a generic WebMCP browser (address bar + `WKWebView` + a
+  `document.modelContext` polyfill and native bridge). It is not WebAlly-specific and shares no code
+  with the web app; it is useful here because WebAlly is a page that registers tools. Media capture
+  there has two independent gates (a `WKUIDelegate` site prompt and macOS TCC) and must be launched
+  via `open`, not by running the binary. Every user-initiated load recycles the web content process,
+  because WebKit's process reuse makes this repo's WebContainer host fail after a few same-process
+  loads — see `macos/README.md`.
 - Generated output lives in `dist/`, `.next/`, `.vinext/`, `.wrangler/`, and `test-results/`; do not treat it as source.
 
 ## Architecture
