@@ -15,108 +15,103 @@ import {
   PUBLISH_LIMIT_PER_HOUR,
   updateVersion,
   VersionError,
+  type SqlClient,
   type VersionBindings,
 } from '../lib/version-store';
 
 /**
- * The D1 stub understands exactly the statements `version-store.ts` issues.
- * The point is to exercise ownership, rate limiting, validation, and the
- * blob/index write order — not to reimplement SQLite.
+ * The Postgres stub understands exactly the statements `version-store.ts`
+ * issues. The point is to exercise ownership, rate limiting, validation, and
+ * atomicity — not to reimplement Postgres.
  */
-interface Row { [column: string]: string | number }
+interface Row { [column: string]: unknown }
 
-function makeDb() {
+/** Columns `listVersions` and `loadOwnedRow` select; overlay is excluded. */
+const INDEX_COLUMNS = [
+  'id', 'name', 'description', 'content_hash', 'author_id',
+  'author_label', 'starter_hash', 'file_count', 'bytes', 'created_at',
+];
+
+function withoutOverlay(row: Row): Row {
+  return Object.fromEntries(INDEX_COLUMNS.map((column) => [column, row[column]]));
+}
+
+function makeSql() {
   const versions: Row[] = [];
   const publishEvents: Row[] = [];
 
-  function run(sql: string, args: (string | number)[]) {
+  async function query<T>(sql: string, params: unknown[] = []): Promise<{ rows: T[] }> {
     const text = sql.replace(/\s+/g, ' ').trim();
-    if (text.startsWith('CREATE')) return { rows: [], first: null };
+    const rows = (() => {
+      if (text.startsWith('CREATE')) return [];
 
-    if (text.startsWith('SELECT * FROM versions WHERE hidden = 0 ORDER BY')) {
-      const rows = versions
-        .filter((row) => row.hidden === 0)
-        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
-        .slice(0, Number(args[0]));
-      return { rows, first: rows[0] ?? null };
-    }
-    if (text.startsWith('SELECT * FROM versions WHERE id = ?1 AND hidden = 0')) {
-      const row = versions.find((candidate) => candidate.id === args[0] && candidate.hidden === 0) ?? null;
-      return { rows: row ? [row] : [], first: row };
-    }
-    if (text.startsWith('SELECT COUNT(*) AS count FROM publish_events')) {
-      const count = publishEvents.filter(
-        (event) => event.author_id === args[0] && String(event.created_at) > String(args[1]),
-      ).length;
-      return { rows: [{ count }], first: { count } };
-    }
-    if (text.startsWith('INSERT INTO versions')) {
-      const [id, name, description, contentHash, authorId, authorLabel, starterHash, fileCount, bytes, createdAt] = args;
-      versions.push({
-        id, name, description, content_hash: contentHash, author_id: authorId, author_label: authorLabel,
-        starter_hash: starterHash, file_count: fileCount, bytes, created_at: createdAt, hidden: 0,
-      });
-      return { rows: [], first: null };
-    }
-    if (text.startsWith('INSERT INTO publish_events')) {
-      publishEvents.push({ author_id: args[0], created_at: args[1] });
-      return { rows: [], first: null };
-    }
-    if (text.startsWith('UPDATE versions SET name')) {
-      const row = versions.find((candidate) => candidate.id === args[2]);
-      if (row) { row.name = args[0]; row.description = args[1]; }
-      return { rows: [], first: null };
-    }
-    if (text.startsWith('UPDATE versions SET hidden = 1')) {
-      const row = versions.find((candidate) => candidate.id === args[0]);
-      if (row) row.hidden = 1;
-      return { rows: [], first: null };
-    }
-    throw new Error(`Unhandled statement: ${text}`);
+      if (text.includes('FROM versions WHERE hidden = FALSE ORDER BY')) {
+        return versions
+          .filter((row) => row.hidden === false)
+          .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+          .slice(0, Number(params[0]))
+          .map(withoutOverlay);
+      }
+      if (text.startsWith('SELECT * FROM versions WHERE id = $1 AND hidden = FALSE')) {
+        const row = versions.find((candidate) => candidate.id === params[0] && candidate.hidden === false);
+        return row ? [row] : [];
+      }
+      if (text.includes('FROM versions WHERE id = $1 AND hidden = FALSE')) {
+        const row = versions.find((candidate) => candidate.id === params[0] && candidate.hidden === false);
+        return row ? [withoutOverlay(row)] : [];
+      }
+      if (text.startsWith('SELECT COUNT(*) AS count FROM publish_events')) {
+        const count = publishEvents.filter(
+          (event) => event.author_id === params[0] && String(event.created_at) > String(params[1]),
+        ).length;
+        // pg surfaces bigint COUNT(*) as a string; the store must cope.
+        return [{ count: String(count) }];
+      }
+      if (text.startsWith('INSERT INTO versions')) {
+        const [id, name, description, contentHash, authorId, authorLabel,
+               starterHash, fileCount, bytes, createdAt, overlay] = params;
+        versions.push({
+          id, name, description, content_hash: contentHash, author_id: authorId,
+          author_label: authorLabel, starter_hash: starterHash, file_count: fileCount,
+          bytes, created_at: createdAt, hidden: false,
+          overlay: JSON.parse(String(overlay)) as unknown,
+        });
+        return [];
+      }
+      if (text.startsWith('INSERT INTO publish_events')) {
+        publishEvents.push({ author_id: params[0], created_at: params[1] });
+        return [];
+      }
+      if (text.startsWith('UPDATE versions SET name')) {
+        const row = versions.find((candidate) => candidate.id === params[2]);
+        if (row) { row.name = params[0]; row.description = params[1]; }
+        return [];
+      }
+      if (text.startsWith('UPDATE versions SET hidden = TRUE')) {
+        const row = versions.find((candidate) => candidate.id === params[0]);
+        if (row) { row.hidden = true; row.overlay = { files: {} }; }
+        return [];
+      }
+      throw new Error(`Unhandled statement: ${text}`);
+    })();
+    return { rows: rows as T[] };
   }
 
-  const db = {
-    prepare(sql: string) {
-      let bound: (string | number)[] = [];
-      const statement = {
-        bind(...args: (string | number)[]) { bound = args; return statement; },
-        async all() { return { results: run(sql, bound).rows }; },
-        async first() { return run(sql, bound).first; },
-        async run() { return run(sql, bound); },
-      };
-      return statement;
-    },
-  } as unknown as D1Database;
-
-  return { db, versions, publishEvents };
-}
-
-function makeBucket() {
-  const objects = new Map<string, string>();
-  const bucket = {
-    async put(key: string, body: string) { objects.set(key, body); },
-    async get(key: string) {
-      const body = objects.get(key);
-      return body === undefined ? null : { json: async () => JSON.parse(body) as unknown };
-    },
-    async delete(key: string) { objects.delete(key); },
-  } as unknown as R2Bucket;
-  return { bucket, objects };
+  return { sql: { query } satisfies SqlClient, versions };
 }
 
 const overlay = { 'src/App.tsx': 'export default function App() { return null; }' };
 const STARTER_HASH = '1111222233334444';
 
 let bindings: VersionBindings;
-let objects: Map<string, string>;
+let versions: { [column: string]: unknown }[];
 let author: string;
 let other: string;
 
 beforeEach(async () => {
-  const database = makeDb();
-  const storage = makeBucket();
-  bindings = { db: database.db, bucket: storage.bucket };
-  objects = storage.objects;
+  const database = makeSql();
+  bindings = { sql: database.sql };
+  versions = database.versions;
   author = await authorIdFor('token-aaaaaaaaaaaaaaaa');
   other = await authorIdFor('token-bbbbbbbbbbbbbbbb');
 });
@@ -136,7 +131,7 @@ describe('publishing', () => {
     expect(version.mine).toBe(true);
     expect(version.authorLabel).toBe(`builder-${author.slice(0, 6)}`);
     expect(version.fileCount).toBe(1);
-    expect(objects.has(`versions/${version.id}.json`)).toBe(true);
+    expect(versions).toHaveLength(1);
 
     const detail = await getVersion(bindings, version.id, author);
     expect(detail?.files).toEqual(overlay);
@@ -159,7 +154,8 @@ describe('publishing', () => {
     await expect(publish({ name: 'x'.repeat(61) })).rejects.toThrow(/at most/);
     await expect(publish({ description: 'x'.repeat(281) })).rejects.toThrow(/at most/);
     await expect(publish({ starterHash: 'nope' })).rejects.toThrow(/hex fingerprint/);
-    expect(objects.size).toBe(0);
+    // Every rejection happens before the INSERT, so nothing is half-written.
+    expect(versions).toEqual([]);
   });
 
   it('rate limits a single author', async () => {
@@ -193,15 +189,18 @@ describe('listing, renaming and unpublishing', () => {
     await hideVersion(bindings, version.id, author);
     expect(await getVersion(bindings, version.id, author)).toBeNull();
     expect(await listVersions(bindings, author)).toEqual([]);
-    // The blob is gone, and the id is not reusable.
-    expect(objects.size).toBe(0);
+    // The published source is gone, but the row stays so the id is not reusable.
+    expect(versions).toHaveLength(1);
+    expect(versions[0].overlay).toEqual({ files: {} });
     await expect(updateVersion(bindings, version.id, author, { name: 'Back' }))
       .rejects.toMatchObject({ status: 404 });
   });
 
-  it('reports a missing blob rather than serving a half-broken version', async () => {
+  it('reports a missing overlay rather than serving a half-broken version', async () => {
     const version = await publish();
-    objects.clear();
+    // Only reachable via a row written outside this code path: publishing is a
+    // single INSERT now, so the store cannot produce this state itself.
+    versions[0].overlay = undefined;
     await expect(getVersion(bindings, version.id, author)).rejects.toMatchObject({ status: 502 });
   });
 });
@@ -223,7 +222,7 @@ describe('request plumbing', () => {
       expect((error as VersionError).status).toBe(503);
       expect(errorResponse(error).status).toBe(503);
     }
-    expect(requireBindings({ DB: bindings.db, VERSIONS: bindings.bucket })).toBeTruthy();
+    expect(requireBindings({ POSTGRES_URL: 'postgres://user@localhost/db' })).toBeTruthy();
   });
 
   it('accepts only well-formed bearer tokens', async () => {

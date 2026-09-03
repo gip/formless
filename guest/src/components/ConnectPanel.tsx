@@ -155,7 +155,7 @@ export default function ConnectPanel() {
       {status && anythingReady && !providerReady ? (
         <p className="sandbox-note">
           No client id is configured for {provider.label}. Epic issues separate non-production and
-          production client ids — set <code>VITE_EPIC_CLIENT_ID</code> for this organization, or pick
+          production client ids — set <code>NEXT_PUBLIC_EPIC_CLIENT_ID</code> for this organization, or pick
           a provider that is configured.
         </p>
       ) : null}

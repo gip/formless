@@ -88,7 +88,7 @@ export class ProjectController {
 
       this.emit({ phase: 'booting', detail: 'Booting the in-browser runtime' });
       const api = await apiModule;
-      const clientKey = (import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_WEBCONTAINER_API_KEY;
+      const clientKey = process.env.NEXT_PUBLIC_WEBCONTAINER_API_KEY;
       if (clientKey) api.configureAPIKey(clientKey);
       this.container = await api.WebContainer.boot({ coep: 'require-corp', forwardPreviewErrors: 'exceptions-only' });
       this.container.on('error', ({ message }) => this.emit({ phase: 'error', detail: message }));
