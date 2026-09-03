@@ -1,8 +1,9 @@
 'use client';
 
-import { BRIDGE_PROTOCOL, type RouteDescriptor, type UiElementDescriptor } from './canvas-types';
+import { BRIDGE_PROTOCOL, type RouteDescriptor, type SpeechState, type UiElementDescriptor } from './canvas-types';
 import { UserMessageQueue } from './message-queue';
 import { getProjectController } from './project-controller';
+import { createSpeechPort } from './speech';
 import { createCanvasTools, registerNativeTools, type VersionOperations } from './webmcp-tools';
 
 /**
@@ -18,6 +19,36 @@ import { createCanvasTools, registerNativeTools, type VersionOperations } from '
 
 /** Typed input and final speech transcripts. `poll_user_messages` is the only reader. */
 export const messageQueue = new UserMessageQueue(50);
+
+/**
+ * The page's own voice, driving `speak_text` and the header voice control.
+ * Constructed with no synthesizer during SSR, where it simply reports itself as
+ * unsupported.
+ */
+export const speechPort = createSpeechPort(
+  typeof window === 'undefined' ? null : undefined,
+);
+
+/** Frozen so `useSyncExternalStore` has a stable server snapshot to compare. */
+const speechServerState: SpeechState = Object.freeze({
+  supported: false,
+  armed: false,
+  speaking: false,
+  blocked: false,
+  lastError: null,
+});
+
+export function getSpeechState(): SpeechState {
+  return speechPort.getState();
+}
+
+export function getServerSpeechState(): SpeechState {
+  return speechServerState;
+}
+
+export function subscribeSpeech(listener: () => void): () => void {
+  return speechPort.subscribe(listener);
+}
 
 let previewTarget: { window: Window; origin: string } | null = null;
 let elements: UiElementDescriptor[] = [];
@@ -59,6 +90,7 @@ export const canvasTools = createCanvasTools({
   getElements: () => elements,
   getRoutes: () => routes,
   sendPreviewCommand,
+  speech: speechPort,
   versions: {
     list: () => versions().list(),
     publish: (input) => versions().publish(input),

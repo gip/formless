@@ -119,6 +119,48 @@ export interface CapabilityGrant {
   privileged: boolean;
 }
 
+/** A synthesis voice the host can speak with, as reported to the agent. */
+export interface SpeechVoiceDescriptor {
+  name: string;
+  lang: string;
+  default: boolean;
+}
+
+export interface SpeakRequest {
+  text: string;
+  /** Exact voice name from `SpeechVoiceDescriptor.name`. */
+  voice?: string;
+  /** BCP-47 tag used to pick a voice when `voice` is not given. */
+  lang?: string;
+  rate?: number;
+  pitch?: number;
+  volume?: number;
+  /** Cancel anything already speaking instead of queueing behind it. */
+  interrupt?: boolean;
+}
+
+export interface SpeakResult {
+  spoken: string;
+  voice: string | null;
+  durationMs: number;
+  /** The utterance was cut off by `stop()` or by a later `interrupt`. */
+  interrupted: boolean;
+  /** The wait cap elapsed first; the utterance is still being spoken. */
+  stillSpeaking: boolean;
+}
+
+/**
+ * What the header voice control renders. `blocked` is the browser refusing to
+ * speak without user activation — the whole reason that control exists.
+ */
+export interface SpeechState {
+  supported: boolean;
+  armed: boolean;
+  speaking: boolean;
+  blocked: boolean;
+  lastError: string | null;
+}
+
 export interface ToolDefinition {
   name: string;
   title: string;

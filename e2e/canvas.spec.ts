@@ -48,6 +48,7 @@ test('exposes the canvas and registers its tools natively', async ({ page }) => 
     'get_website_summary', 'get_website_prompt',
     'list_project_files', 'read_project_files', 'apply_project_changes', 'reset_project',
     'get_ui_elements', 'navigate_to_route', 'highlight_ui_elements', 'clear_ui_highlights', 'poll_user_messages',
+    'speak_text', 'stop_speaking',
     'list_app_versions', 'publish_app_version', 'switch_app_version',
   ]);
 });
@@ -67,12 +68,12 @@ test('registers each tool once and keeps it registered', async ({ page }) => {
   await page.goto('/');
 
   const count = () => page.evaluate(() => (window as unknown as { __tools: unknown[] }).__tools.length);
-  await expect.poll(count, { timeout: 10_000 }).toBe(14);
+  await expect.poll(count, { timeout: 10_000 }).toBe(16);
   await expect(page.getByText('Native WebMCP connected')).toBeVisible();
 
   await page.locator('.preview-status.ready').waitFor({ timeout: 90_000 });
   await page.waitForTimeout(1_500);
-  expect(await count()).toBe(14);
+  expect(await count()).toBe(16);
 });
 
 test('queues a final mocked speech transcript from the editable preview', async ({ page }) => {
@@ -167,4 +168,80 @@ test('declares its routes and lets the agent navigate to the record explorer', a
 
   expect(await callTool(page, 'navigate_to_route', { path: '/nowhere' }))
     .toMatchObject({ ok: false, error: expect.stringContaining('Unknown route') });
+});
+
+test('speaks agent text through the page and stops on request', async ({ page }) => {
+  await installModelContext(page);
+  // Headless Chromium ships no voices and never fires `end`, so the
+  // synthesizer is mocked the same way SpeechRecognition is above.
+  await page.addInitScript(() => {
+    const spoken: { text: string; voice: string | null; rate: number }[] = [];
+    (window as unknown as { __spoken: typeof spoken }).__spoken = spoken;
+    let pending: { onend: (() => void) | null } | null = null;
+    Object.defineProperty(window, 'speechSynthesis', {
+      configurable: true,
+      value: {
+        speaking: false,
+        getVoices: () => [{ name: 'Test Voice', lang: 'en-US', default: true }],
+        speak: (utterance: { text: string; voice: { name: string } | null; rate: number; onend: (() => void) | null; onerror: ((event: { error: string }) => void) | null }) => {
+          // The primer the header button speaks is not a real utterance.
+          if (utterance.text.trim() === '') { utterance.onend?.(); return; }
+          spoken.push({ text: utterance.text, voice: utterance.voice?.name ?? null, rate: utterance.rate });
+          pending = utterance;
+          // Short utterances finish on their own; a long one stays pending so
+          // the stop_speaking case below is a race with nothing.
+          if (utterance.text.length <= 40) {
+            window.setTimeout(() => { if (pending === utterance) { pending = null; utterance.onend?.(); } }, 50);
+          }
+        },
+        cancel: () => {
+          const utterance = pending as unknown as { onerror?: (event: { error: string }) => void } | null;
+          pending = null;
+          utterance?.onerror?.({ error: 'canceled' });
+        },
+        resume: () => undefined,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+      },
+    });
+    Object.defineProperty(window, 'SpeechSynthesisUtterance', {
+      configurable: true,
+      value: class {
+        voice: unknown = null;
+        lang = '';
+        rate = 1;
+        pitch = 1;
+        volume = 1;
+        onend: (() => void) | null = null;
+        onerror: ((event: { error: string }) => void) | null = null;
+        constructor(public text: string) {}
+      },
+    });
+  });
+
+  await page.goto('/');
+  // The control is what gives the document the user activation Chrome wants.
+  await page.getByRole('button', { name: 'Enable voice' }).click();
+  await expect(page.getByRole('button', { name: 'Voice on' })).toBeVisible();
+
+  expect(await callTool(page, 'speak_text', { text: 'Your record is ready.', voice: 'Test Voice', rate: 1.1 }))
+    .toMatchObject({
+      ok: true,
+      spoken: 'Your record is ready.',
+      voice: 'Test Voice',
+      interrupted: false,
+      stillSpeaking: false,
+      availableVoices: [{ name: 'Test Voice', lang: 'en-US', default: true }],
+    });
+  expect(await page.evaluate(() => (window as unknown as { __spoken: { text: string; voice: string | null; rate: number }[] }).__spoken))
+    .toEqual([{ text: 'Your record is ready.', voice: 'Test Voice', rate: 1.1 }]);
+
+  // A pending utterance cut off by stop_speaking is a success, not a failure.
+  const pending = callTool(page, 'speak_text', { text: 'A much longer explanation the user does not want to sit through.' });
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __spoken: unknown[] }).__spoken.length)).toBe(2);
+  expect(await callTool(page, 'stop_speaking')).toMatchObject({ ok: true, cancelled: true });
+  expect(await pending).toMatchObject({ ok: true, interrupted: true });
+
+  expect(await callTool(page, 'speak_text', { text: 'hello', voice: 'Nobody' }))
+    .toMatchObject({ ok: false, error: expect.stringContaining('Unknown voice') });
 });

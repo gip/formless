@@ -1,6 +1,6 @@
 # Formless Health
 
-Formless Health is a preview-first demo of a browser agent inspecting, navigating, and updating a live React project. The outer host boots a WebContainer, mounts the protected guest project, and exposes fourteen WebMCP tools. The guest runs in a cross-origin iframe and reports its instrumented UI elements to the host through a versioned bridge.
+Formless Health is a preview-first demo of a browser agent inspecting, navigating, and updating a live React project. The outer host boots a WebContainer, mounts the protected guest project, and exposes sixteen WebMCP tools. The guest runs in a cross-origin iframe and reports its instrumented UI elements to the host through a versioned bridge.
 
 The guest is **YesYou Health** — a patient-authorized health record app with two routes, a landing page and a record explorer. It is a real interface rather than a synthetic demo, which is the point: a dense clinical record with 1,400+ resources across 17 types is exactly the kind of thing that is hard to navigate by hand and worth driving by voice.
 
@@ -98,10 +98,18 @@ publish runs without microphone access in the preview frame.
 - `highlight_ui_elements`
 - `clear_ui_highlights`
 - `poll_user_messages`
+- `speak_text` (the page says it out loud)
+- `stop_speaking`
 - `list_app_versions`
 - `publish_app_version`
 - `switch_app_version`
 - `navigate_to_route` (moves the preview between the routes the guest declares)
+
+Speech is host-owned: `speak_text` runs the browser's own synthesizer on the host page, never in the
+preview, so a published version cannot drive the speaker. Chrome refuses to speak on a page with no
+user activation and the host page rarely gets one — clicks land inside the preview iframe — so the
+header carries an **Enable voice** control that arms the synthesizer, then reports what is being
+said and stops it. The macOS shell needs no such click.
 
 Code writes are revisioned, restricted to the editable application surface, checked for instrumentation and TypeScript syntax, and rolled back on failure. Validated snapshots persist in IndexedDB. Typed messages and final speech transcripts remain session-only. Publishing and switching versions are both revision-guarded and require explicit confirmation.
 

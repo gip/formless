@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import VersionSwitcher from './VersionSwitcher';
+import VoicePill from './VoicePill';
 import PassphrasePrompt from './PassphrasePrompt';
 import { isTrustedPreviewMessage } from '@/lib/bridge';
 import type { AppVersion, FileMap, RouteDescriptor, UiElementDescriptor } from '@/lib/canvas-types';
@@ -21,6 +22,8 @@ import {
   writeVersionParam,
 } from '@/lib/version-client';
 import {
+  getServerSpeechState,
+  getSpeechState,
   isNativeWebMcp,
   messageQueue,
   sendPreviewCommand,
@@ -28,7 +31,9 @@ import {
   setPreviewTarget,
   setRoutes,
   setVersionOperations,
+  speechPort,
   subscribeNativeWebMcp,
+  subscribeSpeech,
 } from '@/lib/webmcp-runtime';
 
 const initialControllerState: ControllerState = {
@@ -56,6 +61,7 @@ export default function CanvasApp() {
   const controller = useMemo(() => getProjectController(), []);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const nativeWebMcp = useSyncExternalStore(subscribeNativeWebMcp, isNativeWebMcp, () => false);
+  const speech = useSyncExternalStore(subscribeSpeech, getSpeechState, getServerSpeechState);
   const [runtime, setRuntime] = useState(initialControllerState);
   const [versions, setVersions] = useState<AppVersion[]>([]);
   const [versionsError, setVersionsError] = useState<string | null>(null);
@@ -355,6 +361,14 @@ export default function CanvasApp() {
             {importProgress.resourceCount} records
           </div>
         ) : null}
+        <VoicePill
+          supported={speech.supported}
+          armed={speech.armed}
+          speaking={speech.speaking}
+          blocked={speech.blocked}
+          onArm={() => speechPort.arm()}
+          onStop={() => speechPort.stop()}
+        />
         <div className={`connection-pill ${nativeWebMcp ? 'online' : ''}`}>
           <span /> {nativeWebMcp ? 'Native WebMCP connected' : 'Local test bridge only'}
         </div>

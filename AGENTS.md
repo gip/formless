@@ -4,7 +4,7 @@ This file provides repository-specific guidance to coding agents. Keep it focuse
 
 ## Commands
 
-Package manager is **pnpm** (pnpm-lock.yaml, `node_modules/.pnpm`), though scripts are npm-compatible. Node >= 22.13.0.
+Package manager is **pnpm** (pnpm-lock.yaml, `node_modules/.pnpm`), though scripts are npm-compatible. Node 24.x.
 
 ```bash
 pnpm dev                  # next dev on http://localhost:3000
@@ -53,7 +53,7 @@ Regenerating the prebuilt guest runtime (only when `guest/package.json` changes)
 
 ## Architecture
 
-The runtime application is a two-layer system. The **host** (this repo, Next.js App Router on Vercel) boots a WebContainer holding a **guest** React+Vite project (`guest/`, inlined by `lib/starter-project.ts`), renders it in a cross-origin iframe, and exposes fourteen WebMCP tools to a browser agent. It also serves a small versions API backed by Postgres.
+The runtime application is a two-layer system. The **host** (this repo, Next.js App Router on Vercel) boots a WebContainer holding a **guest** React+Vite project (`guest/`, inlined by `lib/starter-project.ts`), renders it in a cross-origin iframe, and exposes sixteen WebMCP tools to a browser agent. It also serves a small versions API backed by Postgres.
 
 ```
 Browser agent ──WebMCP tools──▶ Host page (app/CanvasApp.tsx)
@@ -67,7 +67,7 @@ Browser agent ──WebMCP tools──▶ Host page (app/CanvasApp.tsx)
 
 - `app/CanvasApp.tsx` — owns all application state: the iframe, the `postMessage` listener, the message queue, tool registration, and the version list. The UI is a header (brand, version picker, connection pill) over a full-width preview; there is no side rail. Everything else is a plain module, except `app/VersionSwitcher.tsx`, which is presentational and holds only its own disclosure and form state.
 - `lib/project-controller.ts` — singleton (`getProjectController()`) that owns the WebContainer lifecycle and the authoritative in-memory `FileMap`. State machine phases are the `RuntimePhase` union in `canvas-types.ts`; the UI subscribes via `controller.subscribe()`.
-- `lib/webmcp-tools.ts` — builds the fourteen `ToolDefinition`s and registers them on `document.modelContext` when native WebMCP exists. There is no in-page fallback console: without native WebMCP the tools are simply not reachable from the page, and `CanvasApp` shows "Local test bridge only".
+- `lib/webmcp-tools.ts` — builds the sixteen `ToolDefinition`s and registers them on `document.modelContext` when native WebMCP exists. There is no in-page fallback console: without native WebMCP the tools are simply not reachable from the page, and `CanvasApp` shows "Local test bridge only".
 - `lib/project-policy.ts` — path normalization + the editable-surface allowlist. `lib/persistence.ts` — IndexedDB snapshot (`webmcp-canvas`/`project-snapshots`). `lib/bridge.ts` — trusted-message predicate. `lib/hash.ts` — 16-char SHA-256 prefix. `lib/file-tree.ts` — `FileMap` → `FileSystemTree`.
 - `guest/` — the entire guest project as real files at their real paths. `scripts/generate-starter-files.mjs` inlines them into `lib/generated/starter-files.ts` (checked in), filtered to an extension allowlist, stripping exactly one trailing newline per file so `starterPackageHash()` stays stable. **Re-run `pnpm generate:starter` after editing anything under `guest/`**; `tests/starter-files.test.ts` fails when the checked-in map drifts from disk. This was an `import.meta.glob(..., { query: '?raw' })` under Vite, which could not go stale — Next supports neither glob imports nor `?raw`, so the freshness guarantee moved into a test. Edit guest code as ordinary files.
   - `guest/` is excluded from the host `tsconfig.json` and `eslint.config.mjs`: it targets its own React version and imports `./agent/bridge`, so host type-checking only produces noise. Guest syntax is checked in-container by `guest/scripts/validate-syntax.mjs`, and `tests/guest-audit.test.ts` runs the instrumentation audit plus the structural invariants at host test time.
@@ -170,6 +170,25 @@ verbatim, `types.ts`/`storage.ts`/`session.ts`/`import.ts` are adapted.
   it would exceed the overlay limits (256KB/file, 1MB/batch) and the 2MB publish
   body cap.
 
+### The page's voice
+
+`lib/speech.ts` owns `window.speechSynthesis` for the host page and backs `speak_text` /
+`stop_speaking`. It is host-owned on purpose — the same rule as the microphone and `computeGrant()`:
+a published version is a stranger's code and does not get the speaker. The port takes its
+synthesizer and utterance factory as arguments so `tests/speech.test.ts` can drive it under the
+node environment.
+
+Two browser facts are baked into it and should not be "simplified" away. **Chrome refuses
+`speechSynthesis.speak()` on a document with no user activation** (`error: 'not-allowed'`), and this
+document rarely has one, because the user's clicks land inside the cross-origin preview iframe. That
+is the entire reason `app/VoicePill.tsx` exists: its first click speaks a silent primer and arms the
+engine, and a `not-allowed` error afterwards sets `blocked` so the header says why nothing was said.
+`macos/` needs none of it (`mediaTypesRequiringUserActionForPlayback = []`). And **Chrome's
+synthesis watchdog truncates utterances past roughly fifteen seconds**, so a `resume()` heartbeat
+runs every ten seconds while speech is in flight. `speak()` resolves on `end`, caps the wait at 60s
+(resolving `stillSpeaking` without cancelling), and treats `interrupted`/`canceled` as success —
+`stop_speaking` and `interrupt: true` both produce it deliberately.
+
 ### Messages are pull-only
 
 `UserMessageQueue` (cap 50) holds typed input and final speech transcripts session-only — never persisted, and never rendered: `poll_user_messages` is the only reader. The page cannot push to the agent; the agent is expected to call `poll_user_messages` with a monotonic `afterId` roughly every two seconds.
@@ -201,7 +220,7 @@ This app previously deployed to OpenAI Sites on Cloudflare Workers via `vinext` 
 
 ## Testing shape
 
-Unit tests are node-environment and cover pure modules only (policy, queue, bridge predicate, tool contracts with a mocked controller) — no WebContainer, no jsdom. Three suites were added with the guest port: `tests/guest-audit.test.ts` runs the instrumentation audit and structural invariants over `guest/src` in milliseconds, instead of only discovering a violation after a 45s in-container `validate`; `tests/host-capabilities.test.ts` pins the capability grant policy; `tests/health-storage.test.ts` uses `fake-indexeddb` to check the record is unreadable without its passphrase. `tests/webmcp-tools.test.ts` asserts the exact tool name list and order; adding or renaming a tool requires updating it. `tests/runtime-snapshot.test.ts` reads `public/guest-runtime/` off disk and is the guard against shipping a snapshot built from a different guest `package.json`. E2E drives the real WebContainer boot, so the speech test allows a 90s wait and injects a mock `SpeechRecognition` via `addInitScript`. Since nothing in the page invokes tools any more, `e2e/canvas.spec.ts` installs a minimal `document.modelContext` via `addInitScript` and calls the registered descriptors directly. That stub must honour the registration `AbortSignal`: `registerNativeTools` re-registers whenever the preview origin changes, and a stub that keeps aborted descriptors hands tests a stale tool reporting that the live preview is not ready.
+Unit tests are node-environment and cover pure modules only (policy, queue, bridge predicate, tool contracts with a mocked controller) — no WebContainer, no jsdom. Three suites were added with the guest port: `tests/guest-audit.test.ts` runs the instrumentation audit and structural invariants over `guest/src` in milliseconds, instead of only discovering a violation after a 45s in-container `validate`; `tests/host-capabilities.test.ts` pins the capability grant policy; `tests/health-storage.test.ts` uses `fake-indexeddb` to check the record is unreadable without its passphrase. `tests/webmcp-tools.test.ts` asserts the exact tool name list and order; adding or renaming a tool requires updating it, along with the same list and the literal tool count in `e2e/canvas.spec.ts`. `tests/speech.test.ts` drives `createSpeechPort` against an injected fake synthesizer, which is why the port takes one. `tests/runtime-snapshot.test.ts` reads `public/guest-runtime/` off disk and is the guard against shipping a snapshot built from a different guest `package.json`. E2E drives the real WebContainer boot, so the speech test allows a 90s wait and injects a mock `SpeechRecognition` via `addInitScript`. Since nothing in the page invokes tools any more, `e2e/canvas.spec.ts` installs a minimal `document.modelContext` via `addInitScript` and calls the registered descriptors directly. That stub must honour the registration `AbortSignal`: `registerNativeTools` re-registers whenever the preview origin changes, and a stub that keeps aborted descriptors hands tests a stale tool reporting that the live preview is not ready.
 
 Changes to `skills/formless-apps/assets/formless-apps-starter.ts` must also pass strict standalone compilation:
 
