@@ -124,8 +124,10 @@ is the guest half. Both are protected files.
 - Guest -> host: `manifest` (declared routes + wanted capabilities) and
   `host-request` (`{id, method, params}`). Host -> guest: `host-response`
   (`{id, ok, value|error}`) and `host-event` (`auth.changed`, `record.changed`,
-  `navigate`). All additive to `webmcp-canvas/v1`; an older published version
-  that sends no `manifest` simply declares no routes.
+  `navigate`, `import.started`, `import.progress`, `import.finished`). All
+  additive to `webmcp-canvas/v1`; an older published version that sends no
+  `manifest` simply declares no routes, and one that ignores the import events
+  simply does not narrate the download.
 - Methods: `state.get/set/delete`, `auth.status/connect/disconnect`,
   `record.get/unlock/lock/clear/download`.
 - **`computeGrant()` is the security boundary.** The starter and versions *you*
@@ -169,6 +171,21 @@ verbatim, `types.ts`/`storage.ts`/`session.ts`/`import.ts` are adapted.
 - The demo fixture lives in the **host's** `public/`, not the guest's: at ~4.5MB
   it would exceed the overlay limits (256KB/file, 1MB/batch) and the 2MB publish
   body cap.
+- **The import narrates itself to the guest.** A real export is 27 searches and
+  thousands of resources over a minute or more, so the guest switches to its
+  record view when the download starts and shows the count climbing:
+  `connectAndImport` fires `onImportStart` once `authorize()` returns a token —
+  not when the user clicked connect, since sign-in happens in a popup at the
+  user's own pace — and `lib/health/import-relay.ts` turns the progress
+  callbacks into throttled `host-event`s. `epic.ts` reports per *page* of
+  results, so unthrottled that is hundreds of `postMessage`s per import.
+  Two rules make it safe. `createHealthPort` answers `record.get` with
+  **nothing** while an import is running: the store is still `empty` for that
+  whole window, so the fallback would otherwise hand the guest the
+  de-identified sample to show under the patient's own heading. And
+  `import.finished` carries the failure when there is one — by then the guest
+  may have left the landing page, which is the only place a connect error is
+  rendered.
 
 ### The page's voice
 
@@ -220,7 +237,7 @@ This app previously deployed to OpenAI Sites on Cloudflare Workers via `vinext` 
 
 ## Testing shape
 
-Unit tests are node-environment and cover pure modules only (policy, queue, bridge predicate, tool contracts with a mocked controller) — no WebContainer, no jsdom. Three suites were added with the guest port: `tests/guest-audit.test.ts` runs the instrumentation audit and structural invariants over `guest/src` in milliseconds, instead of only discovering a violation after a 45s in-container `validate`; `tests/host-capabilities.test.ts` pins the capability grant policy; `tests/health-storage.test.ts` uses `fake-indexeddb` to check the record is unreadable without its passphrase. `tests/webmcp-tools.test.ts` asserts the exact tool name list and order; adding or renaming a tool requires updating it, along with the same list and the literal tool count in `e2e/canvas.spec.ts`. `tests/speech.test.ts` drives `createSpeechPort` against an injected fake synthesizer, which is why the port takes one. `tests/runtime-snapshot.test.ts` reads `public/guest-runtime/` off disk and is the guard against shipping a snapshot built from a different guest `package.json`. E2E drives the real WebContainer boot, so the speech test allows a 90s wait and injects a mock `SpeechRecognition` via `addInitScript`. Since nothing in the page invokes tools any more, `e2e/canvas.spec.ts` installs a minimal `document.modelContext` via `addInitScript` and calls the registered descriptors directly. That stub must honour the registration `AbortSignal`: `registerNativeTools` re-registers whenever the preview origin changes, and a stub that keeps aborted descriptors hands tests a stale tool reporting that the live preview is not ready.
+Unit tests are node-environment and cover pure modules only (policy, queue, bridge predicate, tool contracts with a mocked controller) — no WebContainer, no jsdom. Three suites were added with the guest port: `tests/guest-audit.test.ts` runs the instrumentation audit and structural invariants over `guest/src` in milliseconds, instead of only discovering a violation after a 45s in-container `validate`; `tests/host-capabilities.test.ts` pins the capability grant policy; `tests/health-storage.test.ts` uses `fake-indexeddb` to check the record is unreadable without its passphrase. `tests/webmcp-tools.test.ts` asserts the exact tool name list and order; adding or renaming a tool requires updating it, along with the same list and the literal tool count in `e2e/canvas.spec.ts`. `tests/speech.test.ts` drives `createSpeechPort` against an injected fake synthesizer, which is why the port takes one. `tests/import-relay.test.ts` does the same for the import relay with fake timers — it pins the ordering the guest's progress view depends on (nothing before a start, nothing after a finish, the last report always lands), which is why the relay takes its emitter and interval as arguments. `tests/runtime-snapshot.test.ts` reads `public/guest-runtime/` off disk and is the guard against shipping a snapshot built from a different guest `package.json`. E2E drives the real WebContainer boot, so the speech test allows a 90s wait and injects a mock `SpeechRecognition` via `addInitScript`. Since nothing in the page invokes tools any more, `e2e/canvas.spec.ts` installs a minimal `document.modelContext` via `addInitScript` and calls the registered descriptors directly. That stub must honour the registration `AbortSignal`: `registerNativeTools` re-registers whenever the preview origin changes, and a stub that keeps aborted descriptors hands tests a stale tool reporting that the live preview is not ready.
 
 Changes to `skills/formless-apps/assets/formless-apps-starter.ts` must also pass strict standalone compilation:
 

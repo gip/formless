@@ -203,10 +203,27 @@ h1 { max-width: 760px; margin: 0; font-family: var(--serif); font-size: var(--te
 .unlock-card > p:not(.eyebrow) { max-width: 510px; margin: 22px auto 0; color: var(--muted); line-height: 1.6; }
 .unlock-card > .text-button { margin-top: 22px; }
 
+/* Import progress */
+.import-card { width: min(620px, 100%); padding: 42px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--card); }
+.import-card h1 { font-size: var(--text-display-sm); }
+.import-progress { margin-top: 30px; }
+.import-count { display: flex; align-items: baseline; justify-content: center; gap: 10px; margin: 0; }
+.import-count strong { font-family: var(--serif); font-size: 44px; font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.import-count span { color: var(--muted); font-size: var(--text-sm); }
+.import-bar { position: relative; overflow: hidden; height: 6px; margin: 22px 0 14px; border-radius: var(--radius-pill); background: var(--accent-soft); }
+.import-bar-fill { height: 100%; width: 0; border-radius: var(--radius-pill); background: var(--accent); transition: width .4s ease; }
+/* No counts yet: the host has a token but no data, so the bar paces rather than measures. */
+.import-bar.waiting .import-bar-fill { width: 34%; animation: import-sweep 1.6s ease-in-out infinite; transition: none; }
+.import-detail { margin: 0; color: var(--muted); font-size: var(--text-sm); line-height: 1.5; }
+.import-note { max-width: 470px; margin: 26px auto 0; color: var(--muted); font-size: var(--text-xs); line-height: 1.6; }
+
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes import-sweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(294%); } }
 
 @media (prefers-reduced-motion: reduce) {
   .spinner { animation-duration: 1.8s; }
+  .import-bar.waiting .import-bar-fill { animation: none; width: 100%; opacity: .45; }
+  .import-bar-fill { transition: none; }
 }
 
 @media (max-width: 850px) {
@@ -237,6 +254,8 @@ h1 { max-width: 760px; margin: 0; font-family: var(--serif); font-size: var(--te
   .button { width: 100%; }
   .callback-card { padding: 36px 22px; }
   .unlock-card { padding: 32px 20px; }
+  .import-card { padding: 32px 20px; }
+  .import-count strong { font-size: 36px; }
   .explore-shell { padding-top: 40px; }
   .explore-actions { width: 100%; align-items: stretch; flex-direction: column; gap: 8px; }
   .explore-actions .text-button { min-height: 40px; }

@@ -36,6 +36,24 @@ function callTool(page: Page, name: string, input: Record<string, unknown> = {})
   }, [name, input] as const);
 }
 
+/**
+ * Pushes a `host-event` into the preview exactly as `CanvasApp` does. The real
+ * sender is an Epic import, which needs a client id and a human at a MyChart
+ * sign-in; the guest half of the protocol is the part under test here.
+ */
+async function pushHostEvent(page: Page, event: string, payload?: unknown) {
+  await page.evaluate(([name, data]) => {
+    const frame = document.querySelector<HTMLIFrameElement>(
+      'iframe[title="Editable WebMCP application preview"]',
+    );
+    if (!frame?.contentWindow) throw new Error('The preview frame is not mounted.');
+    frame.contentWindow.postMessage(
+      { protocol: 'webmcp-canvas/v1', type: 'host-event', payload: { event: name, payload: data } },
+      new URL(frame.src).origin,
+    );
+  }, [event, payload] as const);
+}
+
 test('exposes the canvas and registers its tools natively', async ({ page }) => {
   await installModelContext(page);
   await page.goto('/');
@@ -168,6 +186,41 @@ test('declares its routes and lets the agent navigate to the record explorer', a
 
   expect(await callTool(page, 'navigate_to_route', { path: '/nowhere' }))
     .toMatchObject({ ok: false, error: expect.stringContaining('Unknown route') });
+});
+
+test('shows the record view filling up while the host imports', async ({ page }) => {
+  await page.goto('/');
+  const preview = page.frameLocator('iframe[title="Editable WebMCP application preview"]');
+  await expect(preview.getByRole('button', { name: 'Send to agent' })).toBeVisible({ timeout: 90_000 });
+  // The app starts on the landing page, and nothing has moved it.
+  await expect(preview.getByRole('heading', { name: 'Downloading your record' })).toHaveCount(0);
+
+  // A download starting takes the user to the record view on its own: the
+  // sign-in popup has just closed, and this is where the record will appear.
+  await pushHostEvent(page, 'import.started', { providerId: 'ucsf' });
+  await expect(preview.getByRole('heading', { name: 'Downloading your record' }))
+    .toBeVisible({ timeout: 15_000 });
+  await expect(preview.getByText('From UCSF Health')).toBeVisible();
+
+  await pushHostEvent(page, 'import.progress', {
+    completedSearches: 6,
+    totalSearches: 27,
+    resourceCount: 412,
+    attachmentCount: 0,
+    label: 'Observation',
+  });
+  await expect(preview.getByText('412')).toBeVisible();
+  await expect(preview.getByText('6 of 27 searches complete · latest observations')).toBeVisible();
+
+  // The panel holds until the record itself is on screen; dropping it on
+  // `import.finished` alone would flash an empty explorer in between.
+  await pushHostEvent(page, 'import.finished', { ok: true });
+  await expect(preview.getByRole('heading', { name: 'Downloading your record' })).toBeVisible();
+
+  await pushHostEvent(page, 'record.changed');
+  await expect(preview.getByRole('heading', { name: 'John Smith', level: 1 }))
+    .toBeVisible({ timeout: 30_000 });
+  await expect(preview.getByText('Data available')).toBeVisible();
 });
 
 test('speaks agent text through the page and stops on request', async ({ page }) => {

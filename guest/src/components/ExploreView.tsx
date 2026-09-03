@@ -17,6 +17,8 @@ import {
   resourceTitle,
 } from './explore-data';
 import type { HealthExportDocument } from './health-types';
+import ImportPanel from './ImportPanel';
+import { importSettled, useImportState } from './import-progress';
 import { RouteLink } from './router';
 import TextModal, { htmlToPlainText, type AttachmentTextView, type TextPreview } from './TextModal';
 
@@ -47,6 +49,7 @@ export default function ExploreView() {
   const [busy, setBusy] = useState<'download' | 'clear' | 'lock' | 'unlock'>();
   const [attachmentTextLoading, setAttachmentTextLoading] = useState<AttachmentTextView>();
   const [textPreview, setTextPreview] = useState<TextPreview>();
+  const importState = useImportState();
 
   async function refresh() {
     try {
@@ -56,6 +59,10 @@ export default function ExploreView() {
       ]);
       setRecord(nextRecord);
       setStatus(nextStatus);
+      // The host answers `record.get` with nothing while an import is running,
+      // so a record in hand is proof the import is over and its progress panel
+      // can give way to the record it was waiting for.
+      if (nextRecord) importSettled();
     } catch (caught) {
       setLoadError(caught instanceof Error ? caught.message : 'Could not open the record.');
     }
@@ -73,6 +80,7 @@ export default function ExploreView() {
         if (cancelled) return;
         setRecord(nextRecord);
         setStatus(nextStatus);
+        if (nextRecord) importSettled();
         if (storedView === 'rendered' || storedView === 'raw') setView(storedView);
       } catch (caught) {
         if (!cancelled) {
@@ -148,6 +156,11 @@ export default function ExploreView() {
     }
   }
 
+  // Ahead of every other state: during an import there is no record to show
+  // (the host withholds the sample rather than pass off someone else's data as
+  // yours), and a locked older record is not what the user is waiting on.
+  if (importState.active) return <ImportPanel state={importState} />;
+
   if (loading) {
     return (
       <main className="explore-shell explore-empty">
@@ -189,7 +202,9 @@ export default function ExploreView() {
       <main className="explore-shell explore-empty">
         <p className="eyebrow">Record explorer</p>
         <h1>No record yet.</h1>
-        <p>{loadError ?? 'Connect MyChart to import a record into this browser.'}</p>
+        {/* An import that failed after the view switched here left its message in
+            the store; without it this page would explain nothing. */}
+        <p>{loadError ?? importState.error ?? 'Connect MyChart to import a record into this browser.'}</p>
         <RouteLink
           to="/"
           agentId="explore-import-cta"

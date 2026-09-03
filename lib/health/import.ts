@@ -19,6 +19,13 @@ export interface ImportProgressReport {
   completedSearches: number;
   totalSearches: number;
   resourceCount: number;
+  attachmentCount: number;
+  /**
+   * The resource type most recently receiving data. Absent until the first page
+   * lands, and only ever the *latest* one: searches run four at a time, so this
+   * is a sign of life, not a queue position.
+   */
+  label?: string;
 }
 
 export interface ConnectParams {
@@ -28,6 +35,12 @@ export interface ConnectParams {
   clientId: string;
   /** Overrides the default SMART scope. Falls back to the provider's, then the default. */
   scope?: string;
+  /**
+   * Fires once the token is in hand and the first FHIR request is about to go
+   * out — the moment the download actually starts, which is not the moment the
+   * user clicked connect: signing in happens in a popup at the user's own pace.
+   */
+  onImportStart?: () => void;
   onProgress?: (progress: ImportProgressReport) => void;
 }
 
@@ -37,14 +50,21 @@ export async function connectAndImport({
   passphrase,
   clientId,
   scope,
+  onImportStart,
   onProgress,
 }: ConnectParams): Promise<HealthExportDocument> {
   const provider = getProvider(providerId);
   if (!provider) throw new Error(`Unknown provider: ${providerId}`);
 
   const auth = await authorize(providerId, clientId, scope);
+  onImportStart?.();
 
   const attachments: HealthAttachmentSummary[] = [];
+  // `exportPatientRecord` counts resources but does not say which type they came
+  // from, and this is the one hook that is told. Recording it here keeps
+  // `epic.ts` verbatim (see AGENTS.md) while still giving the progress report
+  // something concrete to name.
+  let latestLabel: string | undefined;
 
   const result = await exportPatientRecord({
     fhirBase: auth.fhirBase,
@@ -68,12 +88,17 @@ export async function connectAndImport({
         ...(attachment.title ? { title: attachment.title } : {}),
       });
     },
+    // Sink for the label only; the record itself still comes back as the result.
+    // Throwing from here would abort the whole import, so it must not.
+    onResources: (group) => { latestLabel = group; },
     onProgress: onProgress
       ? (progress) =>
           onProgress({
             completedSearches: progress.completedSearches,
             totalSearches: progress.totalSearches,
             resourceCount: progress.resourceCount,
+            attachmentCount: progress.attachmentCount,
+            ...(latestLabel ? { label: latestLabel } : {}),
           })
       : undefined,
   });

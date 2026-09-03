@@ -38,6 +38,11 @@ const GROUP_LABELS: Record<string, string> = {
 
 const GROUP_ORDER = Object.keys(GROUP_LABELS);
 
+/** The patient-facing name for a FHIR resource type. */
+export function groupLabel(key: string): string {
+  return GROUP_LABELS[key] ?? key.replace(/([a-z])([A-Z])/g, "$1 $2");
+}
+
 function asObject(value: unknown): JsonObject | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? value as JsonObject
@@ -158,7 +163,7 @@ export function getResourceGroups(healthExport: HealthExportDocument): ResourceG
   return [...groups.entries()]
     .map(([key, resources]) => ({
       key,
-      label: GROUP_LABELS[key] ?? key.replace(/([a-z])([A-Z])/g, "$1 $2"),
+      label: groupLabel(key),
       resources,
     }))
     .sort((left, right) => {
