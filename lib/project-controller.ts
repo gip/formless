@@ -5,7 +5,7 @@ import type { FileMap, ProjectChange, ProjectFileDescriptor, RuntimePhase } from
 import { toFileTree } from './file-tree';
 import { hashText } from './hash';
 import { loadSnapshot, saveSnapshot } from './persistence';
-import { isEditablePath, listVisiblePaths, normalizeProjectPath, validateChanges } from './project-policy';
+import { extractOverlay, isEditablePath, listVisiblePaths, normalizeProjectPath, validateChanges, validateOverlay } from './project-policy';
 import { fetchRuntimeSnapshot, type RuntimeSnapshotResult } from './runtime-snapshot';
 import { cloneStarterFiles, STARTER_FILES } from './starter-project';
 
@@ -16,6 +16,8 @@ export interface ControllerState {
   detail: string;
   revision: number;
   previewUrl: string | null;
+  /** The published version the working copy is based on; null for the starter. */
+  versionId: string | null;
 }
 
 function mergeSnapshot(files: FileMap | undefined): FileMap {
@@ -30,6 +32,11 @@ function mergeSnapshot(files: FileMap | undefined): FileMap {
   return merged;
 }
 
+/** The starter project expressed as a version overlay. */
+export function starterOverlay(): FileMap {
+  return extractOverlay(STARTER_FILES);
+}
+
 export class ProjectController {
   private container: WebContainer | null = null;
   private serverProcess: WebContainerProcess | null = null;
@@ -41,6 +48,7 @@ export class ProjectController {
     detail: 'Waiting to start',
     revision: 0,
     previewUrl: null,
+    versionId: null,
   };
 
   subscribe(listener: StateListener): () => void {
@@ -76,6 +84,7 @@ export class ProjectController {
       const snapshot = await loadSnapshot();
       this.files = mergeSnapshot(snapshot?.files);
       this.state.revision = snapshot?.revision ?? 0;
+      this.state.versionId = snapshot?.versionId ?? null;
 
       this.emit({ phase: 'booting', detail: 'Booting the in-browser runtime' });
       const api = await apiModule;
@@ -235,7 +244,7 @@ export class ProjectController {
       if (exitCode !== 0) throw new Error(exitCode === 124 ? `Validation timed out. ${diagnostics}` : diagnostics || 'Project validation failed.');
 
       this.state.revision += 1;
-      await saveSnapshot(this.state.revision, this.files);
+      await saveSnapshot(this.state.revision, this.files, this.state.versionId);
       this.emit({ phase: 'ready', detail: 'Live preview ready', revision: this.state.revision });
       return {
         ok: true,
@@ -252,17 +261,62 @@ export class ProjectController {
   }
 
   async reset(baseRevision: unknown, confirm: unknown) {
-    if (!this.container) throw new Error('The project runtime is not ready.');
     if (confirm !== true) throw new Error('Reset requires confirm: true.');
+    // The starter's own overlay, not `{}` — an empty overlay means "this
+    // version deleted every editable file", which is a legal version but the
+    // opposite of a reset.
+    return this.loadVersion(baseRevision, starterOverlay(), 'Starter project restored');
+  }
+
+  /**
+   * Replaces the editable surface with a published version's overlay.
+   *
+   * Deliberately does not run `npm run validate`: an overlay can only have been
+   * published from a draft that already passed validation in `applyChanges`, so
+   * revalidating would spend up to 45s reconfirming a known-good tree. A switch
+   * is a `restoreFiles` plus Vite HMR — a few hundred milliseconds.
+   *
+   * The revision still increments, so an `apply_project_changes` call that was
+   * in flight across the switch carries a stale `baseRevision` and fails rather
+   * than writing the user's edits into the version they just left.
+   */
+  async loadVersion(baseRevision: unknown, overlay: unknown, detail = 'Version loaded', versionId: string | null = null) {
+    if (!this.container) throw new Error('The project runtime is not ready.');
     if (baseRevision !== this.state.revision) throw new Error(`Revision conflict. Current revision is ${this.state.revision}.`);
-    this.emit({ phase: 'validating', detail: 'Restoring the starter project' });
-    const starter = cloneStarterFiles();
-    await this.restoreFiles(starter, true);
-    this.files = starter;
-    this.state.revision += 1;
-    await saveSnapshot(this.state.revision, this.files);
-    this.emit({ phase: 'ready', detail: 'Starter project restored', revision: this.state.revision });
-    return { ok: true, revision: this.state.revision };
+    const files = mergeSnapshot(validateOverlay(overlay));
+    const previous = { ...this.files };
+
+    this.emit({ phase: 'validating', detail: 'Switching the live preview' });
+    try {
+      await this.restoreFiles(files, true);
+      this.files = files;
+      this.state.revision += 1;
+      this.state.versionId = versionId;
+      await saveSnapshot(this.state.revision, this.files, versionId);
+      this.emit({ phase: 'ready', detail, revision: this.state.revision, versionId });
+      return { ok: true, revision: this.state.revision, versionId };
+    } catch (error) {
+      await this.restoreFiles(previous, true);
+      this.files = previous;
+      this.emit({ phase: 'ready', detail: 'Switch failed; previous preview restored' });
+      throw new Error(`Version switch rolled back. ${error instanceof Error ? error.message : 'Write failed.'}`);
+    }
+  }
+
+  /** The editable overlay of the current working copy. */
+  currentOverlay(): FileMap {
+    return extractOverlay(this.files);
+  }
+
+  /**
+   * Points the working copy at a version without touching the files — used
+   * after publishing, where the draft on disk already *is* that version, and
+   * after unpublishing, where it is no longer a checkout of anything.
+   */
+  async markPublished(versionId: string | null): Promise<void> {
+    this.state.versionId = versionId;
+    await saveSnapshot(this.state.revision, this.files, versionId);
+    this.emit({ versionId });
   }
 
   private async restoreFiles(target: FileMap, removeEditable = false): Promise<void> {

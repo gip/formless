@@ -46,7 +46,7 @@ Regenerating the prebuilt guest runtime (only when `lib/starter-project.ts`'s `p
 
 ## Architecture
 
-The runtime application is a two-layer system. The **host** (this repo, Next.js App Router via `vinext` on Cloudflare Workers) boots a WebContainer holding a **guest** React+Vite project (`lib/starter-project.ts`), renders it in a cross-origin iframe, and exposes eight WebMCP tools to a browser agent.
+The runtime application is a two-layer system. The **host** (this repo, Next.js App Router via `vinext` on Cloudflare Workers) boots a WebContainer holding a **guest** React+Vite project (`lib/starter-project.ts`), renders it in a cross-origin iframe, and exposes thirteen WebMCP tools to a browser agent. It also serves a small versions API backed by D1 and R2.
 
 ```
 Browser agent ──WebMCP tools──▶ Host page (app/CanvasApp.tsx)
@@ -58,12 +58,13 @@ Browser agent ──WebMCP tools──▶ Host page (app/CanvasApp.tsx)
 
 ### Host pieces
 
-- `app/CanvasApp.tsx` — the only stateful UI. Owns the iframe, the `postMessage` listener, the message queue, and tool registration. Everything else is a plain module.
+- `app/CanvasApp.tsx` — owns all application state: the iframe, the `postMessage` listener, the message queue, tool registration, and the version list. The UI is a header (brand, version picker, connection pill) over a full-width preview; there is no side rail. Everything else is a plain module, except `app/VersionSwitcher.tsx`, which is presentational and holds only its own disclosure and form state.
 - `lib/project-controller.ts` — singleton (`getProjectController()`) that owns the WebContainer lifecycle and the authoritative in-memory `FileMap`. State machine phases are the `RuntimePhase` union in `canvas-types.ts`; the UI subscribes via `controller.subscribe()`.
-- `lib/webmcp-tools.ts` — builds the eight `ToolDefinition`s and registers them on `document.modelContext` when native WebMCP exists. When it doesn't, `CanvasApp`'s collapsible "Tool console" invokes the *same* descriptors, so there is one code path either way.
+- `lib/webmcp-tools.ts` — builds the thirteen `ToolDefinition`s and registers them on `document.modelContext` when native WebMCP exists. There is no in-page fallback console: without native WebMCP the tools are simply not reachable from the page, and `CanvasApp` shows "Local test bridge only".
 - `lib/project-policy.ts` — path normalization + the editable-surface allowlist. `lib/persistence.ts` — IndexedDB snapshot (`webmcp-canvas`/`project-snapshots`). `lib/bridge.ts` — trusted-message predicate. `lib/hash.ts` — 16-char SHA-256 prefix. `lib/file-tree.ts` — `FileMap` → `FileSystemTree`.
 - `lib/starter-project.ts` — the entire guest project as a `FileMap` of template-literal source strings. Editing guest code means editing strings here; backticks, `${`, and backslashes in regexes must be escaped.
 - `lib/runtime-snapshot.ts` + `public/guest-runtime/` — the prebuilt WebContainer filesystem. `app/dev/snapshot/` is the dev-only generator that produces it.
+- `lib/version-store.ts` (D1 + R2), `lib/version-request.ts` (auth, body limits, error mapping), `app/api/versions/**` (handlers), `lib/version-client.ts` (browser), `app/VersionSwitcher.tsx` (header UI). See **Published versions** below.
 
 ### Three invariants that drive most of the code
 
@@ -74,6 +75,17 @@ Browser agent ──WebMCP tools──▶ Host page (app/CanvasApp.tsx)
 **3. The prebuilt runtime is a cache, never a source of truth.** Boot mounts `public/guest-runtime/runtime.gz` (a `WebContainer.export('.')` of an installed, warmed guest) instead of running `npm install` — ~150ms instead of ~14s. `manifest.json` pins it to a SHA-256 of the starter `package.json`; on any mismatch, missing asset, or mount failure, `hydrateFromRuntimeSnapshot()` logs a reason and falls through to the original mount-and-install path. Nothing else may depend on the snapshot existing. Guest source always comes from `STARTER_FILES` + the IndexedDB overlay mounted *on top* of the snapshot, so a stale snapshot can only cost boot time, never content.
 
 Two consequences to preserve when touching the guest `package.json`: a remounted snapshot loses the executable bit on `node_modules/.bin`, so guest scripts must invoke `node node_modules/<pkg>/…` rather than a bare binary (otherwise `jsh: spawn vite EACCES`); and `@rolldown/binding-wasm32-wasi` stays pinned to rolldown's version so vite does not download it on every dev-server start.
+
+### Published versions
+
+A version is **the editable overlay only** — `extractOverlay()` / `validateOverlay()` in `project-policy.ts`. `mergeSnapshot()` re-derives every protected file from `STARTER_FILES`, so invariant 2 holds by construction at both ends: a published version physically cannot carry a modified `src/agent/bridge.tsx` or `package.json`, however it was written. Overlays are validated on the way in *and* on the way out of R2.
+
+- `ProjectController.loadVersion()` is the single switch path; `reset()` is `loadVersion(rev, starterOverlay())`. It deliberately **skips `npm run validate`** — an overlay can only be published from a draft that already passed validation in `applyChanges`, so a switch is `restoreFiles` plus HMR (~200ms) rather than a 45s revalidation. It still increments the revision, so an `apply_project_changes` in flight across a switch fails on a stale `baseRevision` instead of writing into the version the user just left.
+- Identity is an opaque publisher token in `localStorage`; the server stores only `sha256Hex()` of it as `author_id`. There is no sign-in flow on purpose — `macos/` implements no `createWebViewWith`, so an OAuth popup would be a dead end there.
+- Bindings come from `.openai/hosting.json` (`"d1": "DB"`, `"r2": "VERSIONS"`) and are read with `import { env } from 'cloudflare:workers'` in the route files only, never in `lib/` — that is what keeps `version-store.ts` testable under the node environment. `ensureSchema()` applies the schema lazily per isolate because `vite.config.ts` pins a placeholder `database_id`.
+- Missing bindings are a **soft failure**: the routes answer 503 and the header degrades, matching `fetchRuntimeSnapshot()`'s posture. Never make the canvas depend on the backend being present.
+- The preview iframe drops `microphone` from `allow` while a version the viewer did not publish is loaded; `allow` is read at load, so it is part of the iframe `key`.
+- The macOS shell gets this page-level only, via `?version=<id>`. Do not add a WebAlly-specific versions panel to `macos/` — it is a browser for any site.
 
 ### The bridge (host ↔ guest)
 
@@ -87,7 +99,7 @@ Guest UI is instrumented with `AgentTarget` / `AgentButton` / `AgentInput` from 
 
 ### Messages are pull-only
 
-`UserMessageQueue` (cap 50) holds typed input and final speech transcripts session-only — never persisted. The page cannot push to the agent; the agent is expected to call `poll_user_messages` with a monotonic `afterId` roughly every two seconds.
+`UserMessageQueue` (cap 50) holds typed input and final speech transcripts session-only — never persisted, and never rendered: `poll_user_messages` is the only reader. The page cannot push to the agent; the agent is expected to call `poll_user_messages` with a monotonic `afterId` roughly every two seconds.
 
 ## Web Ally skill
 
@@ -112,7 +124,7 @@ Cloudflare Workers via `@cloudflare/vite-plugin` + wrangler. Bindings are driven
 
 ## Testing shape
 
-Unit tests are node-environment and cover pure modules only (policy, queue, bridge predicate, tool contracts with a mocked controller) — no WebContainer, no jsdom. `tests/webmcp-tools.test.ts` asserts the exact tool name list and order; adding or renaming a tool requires updating it. `tests/runtime-snapshot.test.ts` reads `public/guest-runtime/` off disk and is the guard against shipping a snapshot built from a different guest `package.json`. E2E drives the real WebContainer boot, so the speech test allows a 90s wait and injects a mock `SpeechRecognition` via `addInitScript`.
+Unit tests are node-environment and cover pure modules only (policy, queue, bridge predicate, tool contracts with a mocked controller) — no WebContainer, no jsdom. `tests/webmcp-tools.test.ts` asserts the exact tool name list and order; adding or renaming a tool requires updating it. `tests/runtime-snapshot.test.ts` reads `public/guest-runtime/` off disk and is the guard against shipping a snapshot built from a different guest `package.json`. E2E drives the real WebContainer boot, so the speech test allows a 90s wait and injects a mock `SpeechRecognition` via `addInitScript`. Since nothing in the page invokes tools any more, `e2e/canvas.spec.ts` installs a minimal `document.modelContext` via `addInitScript` and calls the registered descriptors directly. That stub must honour the registration `AbortSignal`: `registerNativeTools` re-registers whenever the preview origin changes, and a stub that keeps aborted descriptors hands tests a stale tool reporting that the live preview is not ready.
 
 Changes to `skills/web-ally/assets/web-ally-starter.ts` must also pass strict standalone compilation:
 
