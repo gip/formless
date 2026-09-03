@@ -257,10 +257,24 @@ export default function CanvasApp() {
     return () => window.removeEventListener('message', onMessage);
   }, [previewOrigin, capabilities, previewIdentity, nativeWebMcp]);
 
-  // Tools are already registered (see lib/webmcp-runtime). All this does is
-  // hand the runtime the live preview window once it exists.
-  useEffect(() => {
-    const frameWindow = iframeRef.current?.contentWindow;
+  /**
+   * Tools are already registered (see lib/webmcp-runtime). All this does is
+   * hand the runtime the live preview window once it exists.
+   *
+   * A ref callback rather than an effect keyed on the origin, because the two
+   * do not change together. The iframe is keyed on `allow` as well as the URL,
+   * so switching to a version published by someone else replaces the element
+   * while the preview URL — and therefore the origin — stays exactly the same.
+   * An effect keyed on the origin does not re-run for that, and the runtime
+   * goes on posting at the window that was just destroyed: `mcp.status` never
+   * reaches the new guest, so its composer times out and announces that no
+   * agent is connected, and every `host-request` hangs until its own timeout.
+   * Only a full page reload cleared it. The element is the thing that changes,
+   * so the element is what the target has to be attached to.
+   */
+  const attachPreview = useCallback((node: HTMLIFrameElement | null) => {
+    iframeRef.current = node;
+    const frameWindow = node?.contentWindow ?? null;
     setPreviewTarget(frameWindow && previewOrigin ? { window: frameWindow, origin: previewOrigin } : null);
   }, [previewOrigin]);
 
@@ -448,7 +462,7 @@ export default function CanvasApp() {
           <div className="preview-viewport">
             {runtime.previewUrl ? (
               <iframe
-                ref={iframeRef}
+                ref={attachPreview}
                 // `allow` is read at load, so it has to be part of the key.
                 key={`${runtime.previewUrl}|${previewAllow}`}
                 src={`${runtime.previewUrl}/?canvasHost=${encodeURIComponent(window.location.origin)}`}
