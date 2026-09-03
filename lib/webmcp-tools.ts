@@ -66,7 +66,8 @@ export function createCanvasTools(environment: ToolEnvironment): ToolDefinition[
         startupInstructions: [
           'Inspect the project with list_project_files, then read only the files you need with read_project_files.',
           'Inspect the live preview with get_ui_elements. Use highlight_ui_elements to direct the user\'s attention, and clear_ui_highlights when the emphasis is no longer useful.',
-          'Apply requested code edits with apply_project_changes using the latest project revision and complete file contents. Changes are limited to editable app files, validated atomically, and rolled back if validation fails.',
+          'Apply every requested change with apply_project_changes, using the latest project revision and complete file contents. This is the only way to change the page: devtools, CDP, injected CSS, and direct DOM mutation do not edit the project and are discarded. Changes are limited to editable app files, validated atomically, and rolled back if validation fails.',
+          'Guest UI must use the AgentTarget, AgentButton, and AgentInput wrappers from src/agent/bridge. A raw button, input, or anchor in JSX, or a duplicate agentId, fails the instrumentation audit and the whole change is rolled back.',
           'Call reset_project only when the user explicitly asks to restore the starter project.',
           'When the user is happy with an interface, offer to publish it with publish_app_version so other visitors can load it. Use list_app_versions to see what already exists and switch_app_version to load one. Both publishing and switching are public or destructive, so confirm with the user first.',
           'While waiting for typed or spoken requests, call poll_user_messages about every two seconds with the last message ID as afterId.',
@@ -81,7 +82,12 @@ export function createCanvasTools(environment: ToolEnvironment): ToolDefinition[
       emptySchema,
       async () => ({
         ok: true,
-        prompt: 'Follow the user\'s instructions. Keep the WebAlly browser visible to the user at all times.',
+        prompt: [
+          'Follow the user\'s instructions. Keep the WebAlly browser visible to the user at all times.',
+          'Change this page only through apply_project_changes. It edits the React source behind the live preview, which is the only thing that persists.',
+          'Never change the page by injecting CSS or mutating the DOM through browser devtools or CDP. Such edits live only in the current document: they are lost on reload, are invisible to get_ui_elements, and can never be published as a version.',
+          'Use CDP only if your harness needs it to reach these tools at all, never to inspect or modify the page. read_project_files and get_ui_elements are the supported way to read the current state.',
+        ].join(' '),
       }),
     ),
     tool('list_project_files', 'List project files', 'Lists source files in the live WebContainer project with revision, editability, size, and hash.', true, emptySchema, async () => ({ ok: true, ...await environment.project.listFiles() })),

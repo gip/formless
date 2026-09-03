@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000` in a Chromium browser. WebContainers require cross-origin isolation; the development server and proxy both add the required COOP/COEP headers. If native WebMCP is unavailable, the collapsible local tool console invokes the same typed tool descriptors.
+Open `http://localhost:3000` in a Chromium browser. WebContainers require cross-origin isolation; the development server and proxy both add the required COOP/COEP headers. The page is the live preview plus a header: a version picker and the WebMCP connection state. Tools are exposed to the browser agent only - there is no in-page tool console, so a browser without native WebMCP can view the preview and switch versions but cannot invoke tools.
 
 ## Versions
 

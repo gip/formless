@@ -57,14 +57,21 @@ describe('WebMCP tool contracts', () => {
         expect.stringContaining('list_project_files'),
         expect.stringContaining('apply_project_changes'),
         expect.stringContaining('poll_user_messages'),
+        expect.stringContaining('AgentButton'),
+        expect.stringMatching(/devtools, CDP, injected CSS/),
       ]),
     });
     const prompt = tools.find((tool) => tool.name === 'get_website_prompt')!;
     expect(prompt.annotations.readOnlyHint).toBe(true);
-    expect(await prompt.execute({})).toEqual({
-      ok: true,
-      prompt: 'Follow the user\'s instructions. Keep the WebAlly browser visible to the user at all times.',
-    });
+    const promptResult = await prompt.execute({}) as { ok: true; prompt: string };
+    expect(promptResult.ok).toBe(true);
+    expect(promptResult.prompt).toContain('Keep the WebAlly browser visible to the user at all times.');
+    // An agent that reads only this prompt must still learn that the page is
+    // changed through the tool, not through devtools or CDP. Leaving that to
+    // startupInstructions alone is what let a real session inject CSS instead.
+    expect(promptResult.prompt).toContain('only through apply_project_changes');
+    expect(promptResult.prompt).toMatch(/devtools or CDP/);
+    expect(promptResult.prompt).toMatch(/lost on reload/);
     const highlight = tools.find((tool) => tool.name === 'highlight_ui_elements')!;
     expect(await highlight.execute({ elementIds: ['missing'], color: '#D9FF63', restTreatment: 'dim' })).toMatchObject({ ok: false });
     expect(await highlight.execute({

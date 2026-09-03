@@ -1,10 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import VersionSwitcher from './VersionSwitcher';
 import { isTrustedPreviewMessage } from '@/lib/bridge';
-import { BRIDGE_PROTOCOL, type AppVersion, type FileMap, type ToolDefinition, type UiElementDescriptor, type UserMessage } from '@/lib/canvas-types';
-import { UserMessageQueue } from '@/lib/message-queue';
+import type { AppVersion, FileMap, UiElementDescriptor } from '@/lib/canvas-types';
 import { getProjectController, starterOverlay, type ControllerState } from '@/lib/project-controller';
 import { overlayHash } from '@/lib/project-policy';
 import { starterPackageHash } from '@/lib/runtime-snapshot';
@@ -16,7 +15,7 @@ import {
   unpublishVersion,
   writeVersionParam,
 } from '@/lib/version-client';
-import { createCanvasTools, registerNativeTools, type VersionOperations } from '@/lib/webmcp-tools';
+import { isNativeWebMcp, messageQueue, setElements, setPreviewTarget, setVersionOperations, subscribeNativeWebMcp } from '@/lib/webmcp-runtime';
 
 const initialControllerState: ControllerState = {
   phase: 'idle',
@@ -41,30 +40,14 @@ const phaseLabels: Record<ControllerState['phase'], string> = {
 
 export default function CanvasApp() {
   const controller = useMemo(() => getProjectController(), []);
-  const messageQueue = useMemo(() => new UserMessageQueue(50), []);
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const elementsRef = useRef<UiElementDescriptor[]>([]);
+  const nativeWebMcp = useSyncExternalStore(subscribeNativeWebMcp, isNativeWebMcp, () => false);
   const [runtime, setRuntime] = useState(initialControllerState);
-  const [elements, setElements] = useState<UiElementDescriptor[]>([]);
-  const [messages, setMessages] = useState<UserMessage[]>([]);
-  const [coverage, setCoverage] = useState<'waiting' | 'valid' | 'invalid'>('waiting');
-  const [nativeWebMcp, setNativeWebMcp] = useState(false);
-  const [tools, setTools] = useState<ToolDefinition[]>([]);
-  const [selectedTool, setSelectedTool] = useState('get_website_summary');
-  const [toolInput, setToolInput] = useState('{}');
-  const [toolOutput, setToolOutput] = useState('Run a tool to inspect its response.');
-  const [toolBusy, setToolBusy] = useState(false);
   const [versions, setVersions] = useState<AppVersion[]>([]);
   const [versionsError, setVersionsError] = useState<string | null>(null);
   const [versionBusy, setVersionBusy] = useState(false);
   const [draftDirty, setDraftDirty] = useState(false);
   const [starterHash, setStarterHash] = useState<string | null>(null);
-  const versionOpsRef = useRef<VersionOperations | null>(null);
-  const versionOps = useCallback((): VersionOperations => {
-    const ops = versionOpsRef.current;
-    if (!ops) throw new Error('Version controls are not ready yet.');
-    return ops;
-  }, []);
   const deepLinkRef = useRef(false);
 
   /**
@@ -92,52 +75,28 @@ export default function CanvasApp() {
   }, [controller]);
 
   useEffect(() => {
-    elementsRef.current = elements;
-  }, [elements]);
-
-  useEffect(() => {
     function onMessage(event: MessageEvent) {
       if (!isTrustedPreviewMessage(event, iframeRef.current?.contentWindow ?? null, previewOrigin)) return;
       const payload = event.data.payload as Record<string, unknown> | undefined;
       if (event.data.type === 'registry' && Array.isArray(payload?.elements)) {
         setElements(payload.elements as UiElementDescriptor[]);
       }
-      if (event.data.type === 'coverage') {
-        setCoverage(payload?.valid === true ? 'valid' : 'invalid');
-      }
       if (event.data.type === 'user-message' && typeof payload?.text === 'string' && (payload.source === 'typed' || payload.source === 'speech')) {
         try {
           messageQueue.add(payload.text, payload.source);
-          setMessages(messageQueue.all());
         } catch { /* Empty preview messages are ignored. */ }
       }
     }
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [messageQueue, previewOrigin]);
+  }, [previewOrigin]);
 
+  // Tools are already registered (see lib/webmcp-runtime). All this does is
+  // hand the runtime the live preview window once it exists.
   useEffect(() => {
-    const sendPreviewCommand = (type: 'highlight' | 'clear-highlight', payload: Record<string, unknown> = {}) => {
-      if (!iframeRef.current?.contentWindow || !previewOrigin) throw new Error('The live preview is not ready.');
-      iframeRef.current.contentWindow.postMessage({ protocol: BRIDGE_PROTOCOL, type, payload }, previewOrigin);
-    };
-    const definitions = createCanvasTools({
-      project: controller,
-      messages: messageQueue,
-      getElements: () => elementsRef.current,
-      sendPreviewCommand,
-      versions: {
-        list: () => versionOps().list(),
-        publish: (input) => versionOps().publish(input),
-        switchTo: (baseRevision, versionId) => versionOps().switchTo(baseRevision, versionId),
-        current: () => versionOps().current(),
-      },
-    });
-    setTools(definitions);
-    const registration = registerNativeTools(definitions);
-    setNativeWebMcp(registration.native);
-    return registration.dispose;
-  }, [controller, messageQueue, previewOrigin, versionOps]);
+    const frameWindow = iframeRef.current?.contentWindow;
+    setPreviewTarget(frameWindow && previewOrigin ? { window: frameWindow, origin: previewOrigin } : null);
+  }, [previewOrigin]);
 
   const refreshVersions = useCallback(async () => {
     const result = await listVersions();
@@ -254,7 +213,7 @@ export default function CanvasApp() {
   // Tool registration reads these through a ref so publishing or switching does
   // not tear down and re-register every WebMCP tool.
   useEffect(() => {
-    versionOpsRef.current = {
+    setVersionOperations({
       list: refreshVersions,
       publish: async ({ name, description }) => publishCurrent(name, description ?? ''),
       switchTo: async (baseRevision, versionId) => {
@@ -269,35 +228,8 @@ export default function CanvasApp() {
         const id = controller.getState().versionId;
         return { id, name: versions.find((version) => version.id === id)?.name ?? 'Starter project', dirty: draftDirty };
       },
-    };
+    });
   }, [controller, draftDirty, publishCurrent, refreshVersions, switchToVersion, versions]);
-
-  async function runTool() {
-    const definition = tools.find((candidate) => candidate.name === selectedTool);
-    if (!definition) return;
-    setToolBusy(true);
-    try {
-      const input = JSON.parse(toolInput || '{}') as Record<string, unknown>;
-      const result = await definition.execute(input);
-      setToolOutput(JSON.stringify(result, null, 2));
-      setRuntime(controller.getState());
-    } catch (error) {
-      setToolOutput(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : 'Invalid tool input.' }, null, 2));
-    } finally {
-      setToolBusy(false);
-    }
-  }
-
-  async function resetProject() {
-    if (!window.confirm('Reset the editable preview to the starter project? Your saved local changes will be replaced.')) return;
-    const definition = tools.find((candidate) => candidate.name === 'reset_project');
-    if (!definition) return;
-    setToolBusy(true);
-    const result = await definition.execute({ baseRevision: runtime.revision, confirm: true });
-    setToolOutput(JSON.stringify(result, null, 2));
-    setRuntime(controller.getState());
-    setToolBusy(false);
-  }
 
   return (
     <main className="canvas-shell">
@@ -311,7 +243,7 @@ export default function CanvasApp() {
           versions={versions}
           currentId={runtime.versionId}
           dirty={draftDirty}
-          busy={versionBusy || toolBusy || runtime.phase !== 'ready'}
+          busy={versionBusy || runtime.phase !== 'ready'}
           error={versionsError}
           starterHash={starterHash}
           onSwitch={(id) => { void switchToVersion(id).catch(() => undefined); }}
@@ -352,53 +284,6 @@ export default function CanvasApp() {
           </div>
         </div>
 
-        <aside className="rail">
-          <section className="rail-block runtime-block">
-            <div className="section-heading"><div><p className="eyebrow">Runtime</p><h2>{phaseLabels[runtime.phase]}</h2></div><span className={`runtime-number ${runtime.phase}`}>{runtime.phase === 'ready' ? '✓' : '01'}</span></div>
-            <p className="runtime-detail">{runtime.detail}</p>
-            <div className="metric-grid">
-              <div><strong>{runtime.revision}</strong><span>Revision</span></div>
-              <div><strong>{elements.length}</strong><span>UI elements</span></div>
-            </div>
-            <div className="micro-statuses">
-              <span className={nativeWebMcp ? 'good' : 'warn'}><i />{nativeWebMcp ? 'Native tools exposed' : 'Compatibility adapter'}</span>
-              <span className={coverage === 'invalid' ? 'bad' : coverage === 'valid' ? 'good' : ''}><i />Instrumentation {coverage}</span>
-            </div>
-          </section>
-
-          <section className="rail-block messages-block">
-            <div className="section-heading"><div><p className="eyebrow">Agent inbox</p><h2>User messages</h2></div><span className="count-pill">{messages.length}</span></div>
-            <div className="message-list" aria-live="polite">
-              {messages.length === 0 ? <p className="empty-state">Typed prompts and final speech transcripts will appear here.</p> : messages.slice(-4).reverse().map((message) => (
-                <article className="message-card" key={message.id}>
-                  <div><span className={`source-dot ${message.source}`} />{message.source}</div>
-                  <p>{message.text}</p>
-                  <small>#{message.id}</small>
-                </article>
-              ))}
-            </div>
-          </section>
-
-          <details className="rail-block tool-console">
-            <summary><span><span className="eyebrow">Local bridge</span><strong>Tool console</strong></span><span aria-hidden="true">＋</span></summary>
-            <label>Tool<select value={selectedTool} onChange={(event) => setSelectedTool(event.target.value)}>{tools.map((definition) => <option key={definition.name}>{definition.name}</option>)}</select></label>
-            <label>JSON arguments<textarea rows={5} value={toolInput} onChange={(event) => setToolInput(event.target.value)} spellCheck={false} /></label>
-            <button type="button" onClick={runTool} disabled={toolBusy || tools.length === 0}>{toolBusy ? 'Running…' : 'Run tool'}</button>
-            <pre>{toolOutput}</pre>
-          </details>
-
-          <section className="rail-footer">
-            <div>
-              <span>Project source</span>
-              <strong>
-                Revision {runtime.revision} · {runtime.versionId
-                  ? `${versions.find((version) => version.id === runtime.versionId)?.name ?? 'published version'}${draftDirty ? ' (edited)' : ''}`
-                  : `starter${draftDirty ? ' (edited)' : ''}`}
-              </strong>
-            </div>
-            <button type="button" onClick={resetProject} disabled={toolBusy || runtime.phase !== 'ready'}>Reset</button>
-          </section>
-        </aside>
       </section>
     </main>
   );

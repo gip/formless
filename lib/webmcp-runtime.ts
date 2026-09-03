@@ -1,0 +1,81 @@
+'use client';
+
+import { BRIDGE_PROTOCOL, type UiElementDescriptor } from './canvas-types';
+import { UserMessageQueue } from './message-queue';
+import { getProjectController } from './project-controller';
+import { createCanvasTools, registerNativeTools, type VersionOperations } from './webmcp-tools';
+
+/**
+ * Registers the WebMCP tools as this module is evaluated, before React hydrates.
+ *
+ * Registration used to live in a `useEffect`, which meant an agent connecting
+ * at load found an empty tool list until hydration finished — measured at
+ * ~270ms against a local dev server, and worse anywhere slower. Nothing about a
+ * tool *descriptor* needs React: only its execution needs the live page. So the
+ * mutable pieces live here as plain module state that `CanvasApp` fills in, and
+ * the descriptors read them at call time.
+ */
+
+/** Typed input and final speech transcripts. `poll_user_messages` is the only reader. */
+export const messageQueue = new UserMessageQueue(50);
+
+let previewTarget: { window: Window; origin: string } | null = null;
+let elements: UiElementDescriptor[] = [];
+let versionOperations: VersionOperations | null = null;
+
+export function setPreviewTarget(target: { window: Window; origin: string } | null): void {
+  previewTarget = target;
+}
+
+export function setElements(next: UiElementDescriptor[]): void {
+  elements = next;
+}
+
+export function setVersionOperations(operations: VersionOperations | null): void {
+  versionOperations = operations;
+}
+
+function versions(): VersionOperations {
+  if (!versionOperations) throw new Error('Version controls are not ready yet.');
+  return versionOperations;
+}
+
+function sendPreviewCommand(type: 'highlight' | 'clear-highlight', payload: Record<string, unknown> = {}): void {
+  if (!previewTarget) throw new Error('The live preview is not ready.');
+  previewTarget.window.postMessage({ protocol: BRIDGE_PROTOCOL, type, payload }, previewTarget.origin);
+}
+
+export const canvasTools = createCanvasTools({
+  project: getProjectController(),
+  messages: messageQueue,
+  getElements: () => elements,
+  sendPreviewCommand,
+  versions: {
+    list: () => versions().list(),
+    publish: (input) => versions().publish(input),
+    switchTo: (baseRevision, versionId) => versions().switchTo(baseRevision, versionId),
+    current: () => versions().current(),
+  },
+});
+
+/**
+ * Registered once, at import. Never disposed: the tools are valid for the life
+ * of the document, and tearing them down on a React lifecycle is what left a
+ * window where the tool list was empty.
+ */
+const native = typeof document === 'undefined' ? false : registerNativeTools(canvasTools).native;
+
+/**
+ * Whether the tools reached a real `document.modelContext`. Read through
+ * `useSyncExternalStore` rather than rendered directly: this is false during
+ * SSR and true in the browser, which is a hydration mismatch if a component
+ * reads it at first render.
+ */
+export function isNativeWebMcp(): boolean {
+  return native;
+}
+
+/** The value never changes after import, so there is nothing to subscribe to. */
+export function subscribeNativeWebMcp(): () => void {
+  return () => undefined;
+}

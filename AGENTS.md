@@ -58,9 +58,9 @@ Browser agent ──WebMCP tools──▶ Host page (app/CanvasApp.tsx)
 
 ### Host pieces
 
-- `app/CanvasApp.tsx` — owns all application state: the iframe, the `postMessage` listener, the message queue, tool registration, and the version list. Everything else is a plain module, except `app/VersionSwitcher.tsx`, which is presentational and holds only its own disclosure and form state.
+- `app/CanvasApp.tsx` — owns all application state: the iframe, the `postMessage` listener, the message queue, tool registration, and the version list. The UI is a header (brand, version picker, connection pill) over a full-width preview; there is no side rail. Everything else is a plain module, except `app/VersionSwitcher.tsx`, which is presentational and holds only its own disclosure and form state.
 - `lib/project-controller.ts` — singleton (`getProjectController()`) that owns the WebContainer lifecycle and the authoritative in-memory `FileMap`. State machine phases are the `RuntimePhase` union in `canvas-types.ts`; the UI subscribes via `controller.subscribe()`.
-- `lib/webmcp-tools.ts` — builds the thirteen `ToolDefinition`s and registers them on `document.modelContext` when native WebMCP exists. When it doesn't, `CanvasApp`'s collapsible "Tool console" invokes the *same* descriptors, so there is one code path either way.
+- `lib/webmcp-tools.ts` — builds the thirteen `ToolDefinition`s and registers them on `document.modelContext` when native WebMCP exists. There is no in-page fallback console: without native WebMCP the tools are simply not reachable from the page, and `CanvasApp` shows "Local test bridge only".
 - `lib/project-policy.ts` — path normalization + the editable-surface allowlist. `lib/persistence.ts` — IndexedDB snapshot (`webmcp-canvas`/`project-snapshots`). `lib/bridge.ts` — trusted-message predicate. `lib/hash.ts` — 16-char SHA-256 prefix. `lib/file-tree.ts` — `FileMap` → `FileSystemTree`.
 - `lib/starter-project.ts` — the entire guest project as a `FileMap` of template-literal source strings. Editing guest code means editing strings here; backticks, `${`, and backslashes in regexes must be escaped.
 - `lib/runtime-snapshot.ts` + `public/guest-runtime/` — the prebuilt WebContainer filesystem. `app/dev/snapshot/` is the dev-only generator that produces it.
@@ -99,7 +99,7 @@ Guest UI is instrumented with `AgentTarget` / `AgentButton` / `AgentInput` from 
 
 ### Messages are pull-only
 
-`UserMessageQueue` (cap 50) holds typed input and final speech transcripts session-only — never persisted. The page cannot push to the agent; the agent is expected to call `poll_user_messages` with a monotonic `afterId` roughly every two seconds.
+`UserMessageQueue` (cap 50) holds typed input and final speech transcripts session-only — never persisted, and never rendered: `poll_user_messages` is the only reader. The page cannot push to the agent; the agent is expected to call `poll_user_messages` with a monotonic `afterId` roughly every two seconds.
 
 ## Web Ally skill
 
@@ -124,7 +124,7 @@ Cloudflare Workers via `@cloudflare/vite-plugin` + wrangler. Bindings are driven
 
 ## Testing shape
 
-Unit tests are node-environment and cover pure modules only (policy, queue, bridge predicate, tool contracts with a mocked controller) — no WebContainer, no jsdom. `tests/webmcp-tools.test.ts` asserts the exact tool name list and order; adding or renaming a tool requires updating it. `tests/runtime-snapshot.test.ts` reads `public/guest-runtime/` off disk and is the guard against shipping a snapshot built from a different guest `package.json`. E2E drives the real WebContainer boot, so the speech test allows a 90s wait and injects a mock `SpeechRecognition` via `addInitScript`.
+Unit tests are node-environment and cover pure modules only (policy, queue, bridge predicate, tool contracts with a mocked controller) — no WebContainer, no jsdom. `tests/webmcp-tools.test.ts` asserts the exact tool name list and order; adding or renaming a tool requires updating it. `tests/runtime-snapshot.test.ts` reads `public/guest-runtime/` off disk and is the guard against shipping a snapshot built from a different guest `package.json`. E2E drives the real WebContainer boot, so the speech test allows a 90s wait and injects a mock `SpeechRecognition` via `addInitScript`. Since nothing in the page invokes tools any more, `e2e/canvas.spec.ts` installs a minimal `document.modelContext` via `addInitScript` and calls the registered descriptors directly. That stub must honour the registration `AbortSignal`: `registerNativeTools` re-registers whenever the preview origin changes, and a stub that keeps aborted descriptors hands tests a stale tool reporting that the live preview is not ready.
 
 Changes to `skills/web-ally/assets/web-ally-starter.ts` must also pass strict standalone compilation:
 
