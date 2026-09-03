@@ -1,4 +1,5 @@
 import type { AppVersion, CapabilityGrant, HostResponseMessage } from './canvas-types';
+import { isVersionTrusted, NO_TRUSTED_VERSIONS, type TrustedVersions } from './version-trust';
 
 /**
  * The host half of the guest capability protocol.
@@ -108,15 +109,24 @@ export class CapabilityError extends Error {}
 
 /**
  * The starter is yours. A version you published is yours. Anything else is a
- * stranger's code, and gets state (namespaced) but never auth or health data.
+ * stranger's code, and gets state (namespaced) but never auth or health data —
+ * unless the person at this browser was shown `VersionTrustPrompt` and chose to
+ * run it anyway, which is what `trusted` carries.
+ *
+ * Trust is only ever consulted for a version the host has actually listed. An id
+ * that is not in `versions` stays unprivileged however it is spelled: the host
+ * has no `contentHash` to check the trust record against, so there is nothing it
+ * could be matching against except the id an attacker chose.
  */
 export function computeGrant(
   versionId: string | null,
   versions: readonly AppVersion[],
+  trusted: TrustedVersions = NO_TRUSTED_VERSIONS,
 ): CapabilityGrant {
   if (!versionId) return { scope: STARTER_SCOPE, privileged: true };
   const version = versions.find((entry) => entry.id === versionId);
-  return { scope: versionId, privileged: Boolean(version?.mine) };
+  if (!version) return { scope: versionId, privileged: false };
+  return { scope: versionId, privileged: version.mine || isVersionTrusted(version, trusted) };
 }
 
 const PRIVILEGED_PREFIXES = ['auth.', 'record.'];
@@ -164,7 +174,8 @@ export async function dispatchCapability(
 
   if (requiresPrivilege(method) && !grant.privileged) {
     throw new CapabilityError(
-      'This version was published by someone else, so it cannot reach your health record or connection.',
+      'This version was published by someone else, so it cannot reach your health record or '
+    + 'connection. Choose "Sandboxed" in the header to review it and allow access.',
     );
   }
 

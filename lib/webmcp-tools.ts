@@ -93,7 +93,8 @@ function tool(
  * `computeGrant()` the bridge uses keeps that one rule rather than two.
  */
 const HEALTH_REFUSAL =
-  'This version was published by someone else, so it cannot reach your health record or connection.';
+  'This version was published by someone else, so it cannot reach your health record or '
+  + 'connection. Choose "Sandboxed" in the header to review it and allow access.';
 
 /**
  * Said before anything drawn from the de-identified fixture. An agent

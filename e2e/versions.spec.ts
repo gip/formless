@@ -114,6 +114,16 @@ test('keeps talking to the preview across a switch that re-creates the frame', a
   ));
   await page.goto('/');
   await expect(trigger).toContainText(name, { timeout: 90_000 });
+
+  // Resuming on a version this browser did not publish now opens the trust
+  // prompt over the canvas. Dismissing it is the sandboxed path — the one this
+  // test is about — and the header must stay reachable afterwards.
+  const trustPrompt = page.getByRole('dialog', { name: /was published by someone else/ });
+  await expect(trustPrompt).toBeVisible({ timeout: 30_000 });
+  await trustPrompt.getByRole('button', { name: 'Keep it sandboxed' }).click();
+  await expect(trustPrompt).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Sandboxed' })).toBeVisible();
+
   await expect(ready).toBeVisible({ timeout: 90_000 });
   await expect(composer).toBeVisible({ timeout: 90_000 });
 

@@ -63,6 +63,15 @@ function matches(choices: ProviderChoice[], query: string): ProviderChoice[] {
 
 export default function ConnectPanel() {
   const [status, setStatus] = useState<AuthStatus>();
+  /**
+   * Why there is no status, when there is none.
+   *
+   * Every note below is gated on `status`, so a *rejected* `auth.status` used to
+   * render nothing at all: the connect button went disabled and the panel said
+   * why in no way whatsoever. The host's refusals are written to be read by a
+   * person, so show one.
+   */
+  const [statusError, setStatusError] = useState<string>();
   const [choices, setChoices] = useState<ProviderChoice[]>(FALLBACK_CHOICES);
   /**
    * The whole selected option, not just its id.
@@ -83,8 +92,12 @@ export default function ConnectPanel() {
   useEffect(() => {
     let cancelled = false;
     hostAuth.status().then(
-      (value) => { if (!cancelled) setStatus(value); },
-      () => { if (!cancelled) setStatus(undefined); },
+      (value) => { if (!cancelled) { setStatus(value); setStatusError(undefined); } },
+      (caught: unknown) => {
+        if (cancelled) return;
+        setStatus(undefined);
+        setStatusError(caught instanceof Error ? caught.message : 'The host did not answer.');
+      },
     );
     return () => { cancelled = true; };
   }, []);
@@ -279,6 +292,9 @@ export default function ConnectPanel() {
         </RouteLink>
       </div>
 
+      {!status && statusError ? (
+        <p className="sandbox-note">{statusError}</p>
+      ) : null}
       {status && !anythingReady ? (
         <p className="sandbox-note">
           Connecting a real record is not configured in this deployment, so the explorer shows a

@@ -101,6 +101,25 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .passphrase-plain-button:hover { color: var(--ink); }
 .passphrase-plain p { margin: 7px 0 0; color: #9b615c; font-size: 11.5px; line-height: 1.5; }
 
+/* Unreviewed-version warning. Same shell as the passphrase dialog: the safe
+   action is the button, the risky one is small print under a rule. */
+.trust-dialog { position: fixed; inset: 0; width: min(460px, calc(100vw - 40px)); max-height: calc(100vh - 40px); margin: auto; padding: 0; border: 1px solid var(--line); border-radius: 17px; background: #fff; color: var(--ink); box-shadow: 0 24px 64px rgba(24,36,52,.25); overflow: auto; }
+.trust-dialog::backdrop { background: rgba(24,36,52,.42); }
+.trust-body { padding: 22px; }
+.trust-dialog h2 { margin: 0 0 10px; font-size: 17px; line-height: 1.3; letter-spacing: -.02em; }
+.trust-dialog p { margin: 0 0 12px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.trust-dialog strong { color: var(--ink); font-weight: 700; }
+.trust-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
+.trust-primary { padding: 9px 15px; border: 1px solid var(--ink); border-radius: 11px; background: var(--ink); color: var(--lime); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.trust-bypass { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.trust-bypass-button { padding: 0; border: 0; background: none; color: var(--blue); font: inherit; font-size: 12px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.trust-bypass-button:hover { color: var(--ink); }
+.trust-bypass p { margin: 7px 0 0; color: #9b615c; font-size: 11.5px; line-height: 1.5; }
+
+/* Reopens the warning for the loaded version after it has been dismissed. */
+.trust-badge { padding: 6px 11px; border: 1px solid #e2c9a6; border-radius: 999px; background: #fdf6ea; color: #8a6524; font: inherit; font-size: 11px; font-weight: 750; cursor: pointer; }
+.trust-badge:hover { border-color: #cfae7d; }
+
 /* OAuth popup pages ---------------------------------------------------------- */
 
 .health-callback { max-width: 420px; margin: 0 auto; padding: 64px 24px; text-align: center; }
