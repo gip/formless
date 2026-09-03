@@ -53,6 +53,7 @@ function stubHealth(): HealthPort {
   };
   return {
     status: vi.fn(async () => status),
+    snapshot: vi.fn(async () => ({ status, source: 'connected' as const, record: { schemaVersion: 1 } })),
     connect: vi.fn(async () => status),
     disconnect: vi.fn(async () => status),
     getRecord: vi.fn(async () => ({ schemaVersion: 1 })),

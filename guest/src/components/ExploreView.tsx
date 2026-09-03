@@ -20,7 +20,7 @@ import type { HealthExportDocument } from './health-types';
 import ImportPanel from './ImportPanel';
 import { importSettled, useImportState } from './import-progress';
 import { RouteLink } from './router';
-import TextModal, { htmlToPlainText, type AttachmentTextView, type TextPreview } from './TextModal';
+import TextModal, { decodeBase64Text, htmlToPlainText, type AttachmentTextView, type TextPreview } from './TextModal';
 
 /**
  * The record explorer, ported from yesyouhealth's `app/explore/explore-client.tsx`.
@@ -138,10 +138,12 @@ export default function ExploreView() {
     setAttachmentTextLoading(textView);
     setLoadError(undefined);
     try {
-      // Attachment bodies are not part of the exported document, so the sample
-      // record has none to open. The host owns fetching them when it has a real
-      // import; until then this is an honest "not available" rather than a crash.
-      const content = typeof resource.text === 'string' ? resource.text : '';
+      // Either the import captured the prose directly, or the record carries it
+      // as a base64 body decoded here on demand. A record with neither is an
+      // honest "not available" rather than a crash.
+      const content = typeof resource.text === 'string'
+        ? resource.text
+        : decodeBase64Text(resource.data) ?? '';
       if (!content) throw new Error('The text of this file is not available in this record.');
       setTextPreview({
         content: textView === 'plain' ? htmlToPlainText(content) : content,

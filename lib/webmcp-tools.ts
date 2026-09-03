@@ -1,8 +1,19 @@
 'use client';
 
 import type { ProjectController } from './project-controller';
-import type { AppVersion, RouteDescriptor, ToolDefinition, UiElementDescriptor } from './canvas-types';
+import type { AppVersion, CapabilityGrant, RouteDescriptor, ToolDefinition, UiElementDescriptor } from './canvas-types';
+import type { HealthSnapshot } from './host-capabilities';
 import type { UserMessageQueue } from './message-queue';
+import {
+  listEntries,
+  readEntries,
+  summarizeRecord,
+  MAX_LIST_LIMIT,
+  MAX_READ_REFS,
+  MAX_TEXT_CHARS,
+  type ReadFormat,
+} from './health/record-view';
+import { isHealthExportDocument } from './health/types';
 import type { SpeechPort } from './speech';
 
 /**
@@ -26,6 +37,19 @@ interface ToolEnvironment {
   versions: VersionOperations;
   /** The host page's speech synthesizer. Host-owned: the guest never drives it. */
   speech: SpeechPort;
+  /** The imported health record, and the grant that decides who may read it. */
+  health: HealthAccess;
+}
+
+/**
+ * The record as the tools see it.
+ *
+ * Two methods rather than a whole `HealthPort` because that is all the read
+ * tools need, and because it keeps the unit-test stub to four lines.
+ */
+export interface HealthAccess {
+  snapshot: () => Promise<HealthSnapshot>;
+  grant: () => CapabilityGrant;
 }
 
 const emptySchema = { type: 'object', properties: {}, additionalProperties: false };
@@ -40,13 +64,15 @@ function tool(
   readOnlyHint: boolean,
   inputSchema: Record<string, unknown>,
   execute: ToolDefinition['execute'],
+  /** Set for results carrying text the page did not author — clinical prose. */
+  untrustedContentHint = false,
 ): ToolDefinition {
   return {
     name,
     title,
     description,
     inputSchema,
-    annotations: { readOnlyHint, untrustedContentHint: false },
+    annotations: { readOnlyHint, untrustedContentHint },
     execute: async (input) => {
       try {
         return await execute(input ?? {});
@@ -55,6 +81,57 @@ function tool(
       }
     },
   };
+}
+
+/**
+ * The refusal the guest gets for `record.*`, reused verbatim.
+ *
+ * The tools are registered by the host, so a published version can never call
+ * them directly — but `get_ui_elements` returns guest-authored labels, which is
+ * a live path for a stranger's version to steer an agent that also holds
+ * `apply_project_changes` and `publish_app_version`. Gating on the same
+ * `computeGrant()` the bridge uses keeps that one rule rather than two.
+ */
+const HEALTH_REFUSAL =
+  'This version was published by someone else, so it cannot reach your health record or connection.';
+
+/**
+ * Said before anything drawn from the de-identified fixture. An agent
+ * describing a stranger's sample history as the user's own is the worst thing
+ * these tools can do, so the notice rides on every result that carries it.
+ */
+const SAMPLE_NOTICE =
+  'This is the de-identified sample record, not the user\'s own data. Say so before describing anything in it.';
+
+function explainMissingRecord(snapshot: HealthSnapshot): string {
+  switch (snapshot.reason) {
+    case 'importing':
+      return 'A record is being downloaded right now. Wait for the import to finish, then ask again.';
+    case 'locked':
+      return 'The stored record is locked. Ask the user to unlock it from the app — the passphrase prompt is host chrome, so an agent cannot open it.';
+    default:
+      return 'There is no record to read. Ask the user to connect a provider from the app\'s landing page; sign-in needs a real click, so an agent cannot start it.';
+  }
+}
+
+/** Applies the trust gate, then insists on an actual document. */
+async function requireRecord(health: HealthAccess) {
+  if (!health.grant().privileged) throw new Error(HEALTH_REFUSAL);
+  const snapshot = await health.snapshot();
+  if (!isHealthExportDocument(snapshot.record)) throw new Error(explainMissingRecord(snapshot));
+  return { record: snapshot.record, source: snapshot.source, status: snapshot.status };
+}
+
+function optionalString(value: unknown, name: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') throw new Error(`${name} must be a string.`);
+  return value;
+}
+
+function optionalInteger(value: unknown, name: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`${name} must be a number.`);
+  return Math.floor(value);
 }
 
 export function createCanvasTools(environment: ToolEnvironment): ToolDefinition[] {
@@ -80,6 +157,7 @@ export function createCanvasTools(environment: ToolEnvironment): ToolDefinition[
           'When the user is happy with an interface, offer to publish it with publish_app_version so other visitors can load it. Use list_app_versions to see what already exists and switch_app_version to load one. Both publishing and switching are public or destructive, so confirm with the user first.',
           'While waiting for typed or spoken requests, call poll_user_messages about every two seconds with the last message ID as afterId.',
           'When the user is speaking rather than typing, answer out loud with speak_text and keep each turn short. It waits until the utterance finishes, so poll_user_messages afterwards rather than talking over the reply. stop_speaking cuts off anything still being spoken.',
+          'To answer questions about the user\'s health, start with get_health_summary, then narrow with list_health_records and read only what you need with read_health_records. Check the source field: sample means the de-identified demo record, not the user\'s own history, and you must say so.',
         ],
       }),
     ),
@@ -302,6 +380,145 @@ export function createCanvasTools(environment: ToolEnvironment): ToolDefinition[
       },
     ),
     tool('stop_speaking', 'Stop speaking', 'Immediately stops anything the page is saying and drops whatever is queued behind it.', false, emptySchema, async () => ({ ok: true, ...environment.speech.stop() })),
+    tool(
+      'get_health_summary',
+      'Get health summary',
+      'Summarizes the patient-authorized health record: what it contains, how much of it there is, and over what dates. Call this before any other health tool. Reports whether the record is the user\'s own, the de-identified sample, or absent.',
+      true,
+      emptySchema,
+      async () => {
+        const health = environment.health;
+        if (!health.grant().privileged) throw new Error(HEALTH_REFUSAL);
+        const snapshot = await health.snapshot();
+        if (!isHealthExportDocument(snapshot.record)) {
+          // Not an error. "There is nothing to read, and here is why" is a more
+          // useful answer than a failure, and the connection state is what the
+          // agent needs to tell the user what to click.
+          return {
+            ok: true,
+            source: 'none' as const,
+            reason: snapshot.reason ?? 'unavailable',
+            connection: snapshot.status,
+            guidance: explainMissingRecord(snapshot),
+          };
+        }
+        return {
+          ok: true,
+          source: snapshot.source,
+          ...(snapshot.source === 'sample' ? { notice: SAMPLE_NOTICE } : {}),
+          connection: snapshot.status,
+          summary: summarizeRecord(snapshot.record),
+          guidance: [
+            'Each group key here is accepted as the group argument to list_health_records.',
+            'list_health_records returns one dated, titled line per item; read_health_records returns the full content by ref.',
+            'importErrors name the resource types the provider refused or failed to return, so an empty group is not proof the user has no such history.',
+          ],
+        };
+      },
+      true,
+    ),
+    tool(
+      'list_health_records',
+      'List health records',
+      'Lists items in the health record as dated, titled lines, newest first. Filter by group, free text, status, or a date range, and page with offset. This is the cheap way to find the handful of refs worth reading in full.',
+      true,
+      {
+        type: 'object',
+        properties: {
+          group: { type: 'string' },
+          query: { type: 'string' },
+          from: { type: 'string' },
+          to: { type: 'string' },
+          status: { type: 'string' },
+          limit: { type: 'integer', minimum: 1, maximum: MAX_LIST_LIMIT },
+          offset: { type: 'integer', minimum: 0 },
+          sort: { type: 'string', enum: ['date_desc', 'date_asc', 'group'] },
+        },
+        additionalProperties: false,
+      },
+      // Re-checked here rather than trusted from inputSchema: a host is not
+      // required to validate before dispatching. Same posture as speak_text.
+      async ({ group, query, from, to, status, limit, offset, sort }) => {
+        const { record, source } = await requireRecord(environment.health);
+        if (sort !== undefined && sort !== 'date_desc' && sort !== 'date_asc' && sort !== 'group') {
+          throw new Error('sort must be date_desc, date_asc, or group.');
+        }
+        const page = listEntries(record, {
+          group: optionalString(group, 'group'),
+          query: optionalString(query, 'query'),
+          from: optionalString(from, 'from'),
+          to: optionalString(to, 'to'),
+          status: optionalString(status, 'status'),
+          limit: optionalInteger(limit, 'limit'),
+          offset: optionalInteger(offset, 'offset'),
+          sort,
+        });
+        return {
+          ok: true,
+          source,
+          ...(source === 'sample' ? { notice: SAMPLE_NOTICE } : {}),
+          ...page,
+        };
+      },
+      true,
+    ),
+    tool(
+      'read_health_records',
+      'Read health records',
+      'Reads the full content of specific health records by ref, as taken from the provider\'s FHIR API. format "fields" is the labelled human reading, "fhir" is the verbatim resource JSON, and "text" is the prose of a clinical-note file. Give refs from list_health_records, or a group to read its first items.',
+      true,
+      {
+        type: 'object',
+        properties: {
+          refs: { type: 'array', minItems: 1, maxItems: MAX_READ_REFS, items: { type: 'string' } },
+          group: { type: 'string' },
+          offset: { type: 'integer', minimum: 0 },
+          limit: { type: 'integer', minimum: 1, maximum: MAX_READ_REFS },
+          format: { type: 'string', enum: ['fields', 'fhir', 'text'] },
+          textOffset: { type: 'integer', minimum: 0 },
+          maxChars: { type: 'integer', minimum: 1, maximum: MAX_TEXT_CHARS },
+        },
+        additionalProperties: false,
+      },
+      async ({ refs, group, offset, limit, format, textOffset, maxChars }) => {
+        const { record, source } = await requireRecord(environment.health);
+        if (format !== undefined && format !== 'fields' && format !== 'fhir' && format !== 'text') {
+          throw new Error('format must be fields, fhir, or text.');
+        }
+
+        let wanted: string[];
+        if (refs !== undefined) {
+          if (!Array.isArray(refs) || !refs.length || !refs.every((ref) => typeof ref === 'string')) {
+            throw new Error('refs must be a non-empty array of record refs.');
+          }
+          if (refs.length > MAX_READ_REFS) throw new Error(`At most ${MAX_READ_REFS} refs may be read at once.`);
+          wanted = refs as string[];
+        } else {
+          const groupName = optionalString(group, 'group');
+          if (!groupName) throw new Error('Pass refs, or a group to read its first items.');
+          const page = listEntries(record, {
+            group: groupName,
+            offset: optionalInteger(offset, 'offset'),
+            limit: Math.min(optionalInteger(limit, 'limit') ?? 5, MAX_READ_REFS),
+          });
+          if (!page.entries.length) throw new Error(`No records matched the group ${groupName}.`);
+          wanted = page.entries.map((entry) => entry.ref);
+        }
+
+        const result = readEntries(record, wanted, (format ?? 'fields') as ReadFormat, {
+          textOffset: optionalInteger(textOffset, 'textOffset'),
+          maxChars: optionalInteger(maxChars, 'maxChars'),
+        });
+        return {
+          ok: true,
+          source,
+          format: format ?? 'fields',
+          ...(source === 'sample' ? { notice: SAMPLE_NOTICE } : {}),
+          ...result,
+        };
+      },
+      true,
+    ),
     tool(
       'list_app_versions',
       'List app versions',

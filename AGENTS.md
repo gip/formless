@@ -53,7 +53,7 @@ Regenerating the prebuilt guest runtime (only when `guest/package.json` changes)
 
 ## Architecture
 
-The runtime application is a two-layer system. The **host** (this repo, Next.js App Router on Vercel) boots a WebContainer holding a **guest** React+Vite project (`guest/`, inlined by `lib/starter-project.ts`), renders it in a cross-origin iframe, and exposes sixteen WebMCP tools to a browser agent. It also serves a small versions API backed by Postgres.
+The runtime application is a two-layer system. The **host** (this repo, Next.js App Router on Vercel) boots a WebContainer holding a **guest** React+Vite project (`guest/`, inlined by `lib/starter-project.ts`), renders it in a cross-origin iframe, and exposes nineteen WebMCP tools to a browser agent. It also serves a small versions API backed by Postgres.
 
 ```
 Browser agent ──WebMCP tools──▶ Host page (app/CanvasApp.tsx)
@@ -67,7 +67,7 @@ Browser agent ──WebMCP tools──▶ Host page (app/CanvasApp.tsx)
 
 - `app/CanvasApp.tsx` — owns all application state: the iframe, the `postMessage` listener, the message queue, tool registration, and the version list. The UI is a header (brand, version picker, connection pill) over a full-width preview; there is no side rail. Everything else is a plain module, except `app/VersionSwitcher.tsx`, which is presentational and holds only its own disclosure and form state.
 - `lib/project-controller.ts` — singleton (`getProjectController()`) that owns the WebContainer lifecycle and the authoritative in-memory `FileMap`. State machine phases are the `RuntimePhase` union in `canvas-types.ts`; the UI subscribes via `controller.subscribe()`.
-- `lib/webmcp-tools.ts` — builds the sixteen `ToolDefinition`s and registers them on `document.modelContext` when native WebMCP exists. There is no in-page fallback console: without native WebMCP the tools are simply not reachable from the page, and `CanvasApp` shows "Local test bridge only".
+- `lib/webmcp-tools.ts` — builds the nineteen `ToolDefinition`s and registers them on `document.modelContext` when native WebMCP exists. There is no in-page fallback console: without native WebMCP the tools are simply not reachable from the page, and `CanvasApp` shows "Local test bridge only".
 - `lib/project-policy.ts` — path normalization + the editable-surface allowlist. `lib/persistence.ts` — IndexedDB snapshot (`webmcp-canvas`/`project-snapshots`). `lib/bridge.ts` — trusted-message predicate. `lib/hash.ts` — 16-char SHA-256 prefix. `lib/file-tree.ts` — `FileMap` → `FileSystemTree`.
 - `guest/` — the entire guest project as real files at their real paths. `scripts/generate-starter-files.mjs` inlines them into `lib/generated/starter-files.ts` (checked in), filtered to an extension allowlist, stripping exactly one trailing newline per file so `starterPackageHash()` stays stable. **Re-run `pnpm generate:starter` after editing anything under `guest/`**; `tests/starter-files.test.ts` fails when the checked-in map drifts from disk. This was an `import.meta.glob(..., { query: '?raw' })` under Vite, which could not go stale — Next supports neither glob imports nor `?raw`, so the freshness guarantee moved into a test. Edit guest code as ordinary files.
   - `guest/` is excluded from the host `tsconfig.json` and `eslint.config.mjs`: it targets its own React version and imports `./agent/bridge`, so host type-checking only produces noise. Guest syntax is checked in-container by `guest/scripts/validate-syntax.mjs`, and `tests/guest-audit.test.ts` runs the instrumentation audit plus the structural invariants at host test time.
@@ -186,6 +186,33 @@ verbatim, `types.ts`/`storage.ts`/`session.ts`/`import.ts` are adapted.
   `import.finished` carries the failure when there is one — by then the guest
   may have left the landing page, which is the only place a connect error is
   rendered.
+
+- **The record is readable by the agent, through host tools.** `get_health_summary`,
+  `list_health_records` and `read_health_records` sit on `lib/health/record-view.ts`
+  and reach the port directly — there is no bridge round trip, and no new guest
+  method: `dispatchCapability` is unchanged. They gate on the same
+  `computeGrant()` the bridge does, because `get_ui_elements` hands
+  guest-authored labels to an agent that also holds `apply_project_changes` and
+  `publish_app_version`, and a stranger's version should not get to steer that.
+  All three carry `untrustedContentHint: true`.
+- **`record-view.ts` duplicates `guest/src/components/explore-data.ts` on
+  purpose.** That file is editable (`src/components/**`), so reading the user's
+  own record through it would put the trust boundary in rewritable code. Treat
+  it like `BRIDGE_PROTOCOL`: two copies, changed together. `port.snapshot()`
+  exists for the same reason `getRecord()` is not enough — it says *which*
+  record came back (`connected` / `sample` / `none` plus a reason), and an agent
+  narrating the de-identified fixture as the user's history is the worst outcome
+  this feature has.
+- **Note text is now kept.** `import.ts` reads `text/html` and `text/plain`
+  attachment bodies into `HealthAttachmentSummary.text` (256KB per note, 8MB
+  total, soft-failing into `errors.Binary`) — reversing the earlier
+  summaries-only rule, which left `ExploreView`'s "View raw" / "View text"
+  buttons permanently broken because nothing ever populated `resource.text`.
+  Binaries that are not prose — PDFs, images, RTF — are still discarded. The
+  field is additive to `schemaVersion: 1`; bumping the version would strip every
+  record already encrypted on disk of its validity. That callback must never
+  throw: `epic.ts` wraps a sink throw in `ImportSinkError` and aborts the whole
+  import.
 
 ### The page's voice
 

@@ -38,6 +38,21 @@ export function htmlToPlainText(content: string): string {
     .trim();
 }
 
+/**
+ * Decodes a FHIR `Binary.data` payload. `atob` yields latin1, so the bytes go
+ * back through `TextDecoder` — a UTF-8 note otherwise arrives mojibaked.
+ */
+export function decodeBase64Text(value: unknown): string | undefined {
+  if (typeof value !== 'string' || !value) return undefined;
+  try {
+    const binary = atob(value.replace(/\s+/g, ''));
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return undefined;
+  }
+}
+
 export default function TextModal({
   preview,
   onClose,

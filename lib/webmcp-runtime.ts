@@ -4,7 +4,7 @@ import { BRIDGE_PROTOCOL, type RouteDescriptor, type SpeechState, type UiElement
 import { UserMessageQueue } from './message-queue';
 import { getProjectController } from './project-controller';
 import { createSpeechPort } from './speech';
-import { createCanvasTools, registerNativeTools, type VersionOperations } from './webmcp-tools';
+import { createCanvasTools, registerNativeTools, type HealthAccess, type VersionOperations } from './webmcp-tools';
 
 /**
  * Registers the WebMCP tools as this module is evaluated, before React hydrates.
@@ -53,6 +53,12 @@ export function subscribeSpeech(listener: () => void): () => void {
 let previewTarget: { window: Window; origin: string } | null = null;
 let elements: UiElementDescriptor[] = [];
 let versionOperations: VersionOperations | null = null;
+/**
+ * The record and the capability grant, filled in by `CanvasApp`. Null until it
+ * mounts: `createHealthPort` needs the passphrase prompt and the import relay,
+ * neither of which exists at module evaluation.
+ */
+let healthAccess: HealthAccess | null = null;
 /** Routes the guest declared via `manifest`. Empty until it does — never guessed. */
 let routes: RouteDescriptor[] = [];
 
@@ -72,9 +78,18 @@ export function setRoutes(next: RouteDescriptor[]): void {
   routes = next;
 }
 
+export function setHealthAccess(next: HealthAccess | null): void {
+  healthAccess = next;
+}
+
 function versions(): VersionOperations {
   if (!versionOperations) throw new Error('Version controls are not ready yet.');
   return versionOperations;
+}
+
+function health(): HealthAccess {
+  if (!healthAccess) throw new Error('The health record is not ready yet.');
+  return healthAccess;
 }
 
 export type PreviewCommand = 'highlight' | 'clear-highlight' | 'host-response' | 'host-event';
@@ -91,6 +106,10 @@ export const canvasTools = createCanvasTools({
   getRoutes: () => routes,
   sendPreviewCommand,
   speech: speechPort,
+  health: {
+    snapshot: () => health().snapshot(),
+    grant: () => health().grant(),
+  },
   versions: {
     list: () => versions().list(),
     publish: (input) => versions().publish(input),

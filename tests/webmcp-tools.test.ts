@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AppVersion } from '../lib/canvas-types';
-import { createCanvasTools } from '../lib/webmcp-tools';
+import { createCanvasTools, type HealthAccess } from '../lib/webmcp-tools';
+import type { HealthSnapshot } from '../lib/host-capabilities';
 import { UserMessageQueue } from '../lib/message-queue';
+import type { HealthExportDocument } from '../lib/health/types';
 import type { SpeechPort } from '../lib/speech';
 
 const publishedVersion: AppVersion = {
@@ -44,6 +46,56 @@ function versionStub() {
   };
 }
 
+const connectedStatus = {
+  configured: true,
+  configuredProviders: ['ucsf'],
+  connected: true,
+  provider: 'UCSF Health',
+  record: 'unlocked' as const,
+};
+
+function tinyRecord(): HealthExportDocument {
+  return {
+    schemaVersion: 1,
+    exportedAt: '2026-08-01T00:00:00.000Z',
+    exportedBy: 'YesYou Health',
+    source: { provider: 'UCSF Health', fhirBase: 'https://example.test/fhir', patientId: 'p1' },
+    purpose: 'Testing.',
+    limitations: [],
+    data: {
+      Patient: { resourceType: 'Patient', id: 'p1', name: [{ text: 'Jane Roe' }], birthDate: '1980-04-02' },
+      Condition: [
+        { resourceType: 'Condition', id: 'c1', status: 'active', code: { text: 'Asthma' }, recordedDate: '2019-05-04' },
+        { resourceType: 'Condition', id: 'c2', status: 'resolved', code: { text: 'Sprained ankle' }, recordedDate: '2023-02-11' },
+      ],
+    },
+    errors: {},
+    priorAuthorizations: [],
+    attachments: [
+      {
+        key: 'b1',
+        binaryId: 'b1',
+        contentType: 'text/html',
+        size: 42,
+        title: 'Visit note',
+        text: '<p>Patient reports&nbsp;improvement.</p>',
+      },
+    ],
+  };
+}
+
+function healthStub(snapshot?: Partial<HealthSnapshot>, privileged = true): HealthAccess {
+  return {
+    snapshot: async () => ({
+      status: connectedStatus,
+      source: 'connected',
+      record: tinyRecord(),
+      ...snapshot,
+    }) as HealthSnapshot,
+    grant: () => ({ scope: 'starter', privileged }),
+  };
+}
+
 describe('WebMCP tool contracts', () => {
   it('lists all required tools and validates highlight IDs', async () => {
     const sendPreviewCommand = vi.fn();
@@ -60,6 +112,7 @@ describe('WebMCP tool contracts', () => {
       getRoutes: () => [{ path: '/', title: 'Home', description: 'Landing page.' }, { path: '/explore', title: 'Explore', description: 'Record explorer.' }],
       sendPreviewCommand,
       speech: speechStub(),
+      health: healthStub(),
       versions: versionStub(),
     });
     expect(tools.map((tool) => tool.name)).toEqual([
@@ -68,6 +121,7 @@ describe('WebMCP tool contracts', () => {
       'list_project_files', 'read_project_files', 'apply_project_changes', 'reset_project',
       'get_ui_elements', 'navigate_to_route', 'highlight_ui_elements', 'clear_ui_highlights', 'poll_user_messages',
       'speak_text', 'stop_speaking',
+      'get_health_summary', 'list_health_records', 'read_health_records',
       'list_app_versions', 'publish_app_version', 'switch_app_version',
     ]);
     const summary = tools.find((tool) => tool.name === 'get_website_summary')!;
@@ -131,6 +185,7 @@ describe('WebMCP tool contracts', () => {
       getRoutes: () => [],
       sendPreviewCommand: vi.fn(),
       speech: speechStub(),
+      health: healthStub(),
       versions,
     });
     const list = tools.find((tool) => tool.name === 'list_app_versions')!;
@@ -179,6 +234,7 @@ describe('navigate_to_route', () => {
       getRoutes: () => routes,
       sendPreviewCommand,
       speech: speechStub(),
+      health: healthStub(),
       versions: versionStub(),
     });
     return { navigate: tools.find((tool) => tool.name === 'navigate_to_route')!, sendPreviewCommand };
@@ -231,6 +287,7 @@ describe('speak_text and stop_speaking', () => {
       getRoutes: () => [],
       sendPreviewCommand: vi.fn(),
       speech,
+      health: healthStub(),
       versions: versionStub(),
     });
   }
@@ -280,5 +337,135 @@ describe('speak_text and stop_speaking', () => {
     const stop = speechTools(speech).find((tool) => tool.name === 'stop_speaking')!;
     expect(await stop.execute({})).toEqual({ ok: true, cancelled: true });
     expect(speech.stop).toHaveBeenCalled();
+  });
+});
+
+describe('health record tools', () => {
+  function healthTools(health: HealthAccess) {
+    return createCanvasTools({
+      project: {} as never,
+      messages: new UserMessageQueue(),
+      getElements: () => [],
+      getRoutes: () => [],
+      sendPreviewCommand: vi.fn(),
+      speech: speechStub(),
+      health,
+      versions: versionStub(),
+    });
+  }
+
+  function healthTool(name: string, health: HealthAccess) {
+    return healthTools(health).find((tool) => tool.name === name)!;
+  }
+
+  it('marks every health tool read-only and its content untrusted', () => {
+    const tools = healthTools(healthStub());
+    for (const name of ['get_health_summary', 'list_health_records', 'read_health_records']) {
+      const tool = tools.find((candidate) => candidate.name === name)!;
+      expect(tool.annotations.readOnlyHint).toBe(true);
+      // Clinical prose is text this page did not author.
+      expect(tool.annotations.untrustedContentHint).toBe(true);
+    }
+  });
+
+  it('summarizes a connected record', async () => {
+    const result = await healthTool('get_health_summary', healthStub()).execute({}) as Record<string, unknown>;
+    expect(result).toMatchObject({ ok: true, source: 'connected' });
+    expect(result.notice).toBeUndefined();
+    expect(result).toMatchObject({
+      summary: { totals: { resources: 4 }, patient: { name: 'Jane Roe' } },
+    });
+  });
+
+  it('says plainly when the record is the de-identified sample', async () => {
+    const sample = healthStub({ source: 'sample' });
+    for (const name of ['get_health_summary', 'list_health_records', 'read_health_records']) {
+      const input = name === 'read_health_records' ? { group: 'Condition' } : {};
+      const result = await healthTool(name, sample).execute(input) as Record<string, unknown>;
+      expect(result).toMatchObject({ ok: true, source: 'sample' });
+      expect(String(result.notice)).toContain('not the user');
+    }
+  });
+
+  it('refuses every health tool while a stranger\'s version is loaded', async () => {
+    const stranger = healthStub(undefined, false);
+    for (const name of ['get_health_summary', 'list_health_records', 'read_health_records']) {
+      expect(await healthTool(name, stranger).execute({})).toMatchObject({
+        ok: false,
+        error: expect.stringContaining('published by someone else'),
+      });
+    }
+  });
+
+  it('distinguishes a locked record from one still downloading', async () => {
+    const locked = healthStub({ source: 'none', reason: 'locked', record: undefined });
+    const summary = await healthTool('get_health_summary', locked).execute({}) as Record<string, unknown>;
+    // Not a failure: the connection state is what tells the user what to click.
+    expect(summary).toMatchObject({ ok: true, source: 'none', reason: 'locked' });
+    expect(String(summary.guidance)).toContain('unlock');
+    expect(await healthTool('list_health_records', locked).execute({})).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('locked'),
+    });
+
+    const importing = healthStub({ source: 'none', reason: 'importing', record: undefined });
+    expect(await healthTool('list_health_records', importing).execute({})).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('downloaded right now'),
+    });
+  });
+
+  it('lists dated, titled lines and pages them', async () => {
+    const list = healthTool('list_health_records', healthStub());
+    const result = await list.execute({ group: 'Condition', limit: 1 }) as Record<string, unknown>;
+    expect(result).toMatchObject({ ok: true, total: 2, returned: 1, nextOffset: 1 });
+    const entries = result.entries as { ref: string; title: string; date?: string }[];
+    // Newest first: the sprain is more recent than the asthma.
+    expect(entries[0]).toMatchObject({ ref: 'Condition/c2', title: 'Sprained ankle', date: '2023-02-11' });
+  });
+
+  it('rejects a sort it does not implement', async () => {
+    expect(await healthTool('list_health_records', healthStub()).execute({ sort: 'title' })).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('sort must be'),
+    });
+  });
+
+  it('reads full content by ref, and by group when given no refs', async () => {
+    const read = healthTool('read_health_records', healthStub());
+
+    const fields = await read.execute({ refs: ['Condition/c1'] }) as Record<string, unknown>;
+    expect(fields).toMatchObject({ ok: true, format: 'fields' });
+    expect((fields.items as { fields: unknown[] }[])[0].fields.length).toBeGreaterThan(0);
+
+    const fhir = await read.execute({ refs: ['Condition/c1'], format: 'fhir' }) as Record<string, unknown>;
+    expect((fhir.items as { fhir: Record<string, unknown> }[])[0].fhir).toMatchObject({
+      resourceType: 'Condition',
+      id: 'c1',
+    });
+
+    const byGroup = await read.execute({ group: 'Conditions' }) as Record<string, unknown>;
+    expect((byGroup.items as unknown[]).length).toBe(2);
+  });
+
+  it('reads captured note text as prose', async () => {
+    const result = await healthTool('read_health_records', healthStub())
+      .execute({ refs: ['Binary/b1'], format: 'text' }) as Record<string, unknown>;
+    expect((result.items as { text: string }[])[0].text).toBe('Patient reports improvement.');
+  });
+
+  it('refuses more refs than it will read at once', async () => {
+    const refs = Array.from({ length: 21 }, (_, index) => `Condition/c${index}`);
+    expect(await healthTool('read_health_records', healthStub()).execute({ refs })).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('at once'),
+    });
+  });
+
+  it('asks for refs or a group rather than guessing', async () => {
+    expect(await healthTool('read_health_records', healthStub()).execute({})).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('Pass refs'),
+    });
   });
 });
