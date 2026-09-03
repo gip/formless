@@ -1,6 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
 
 import { installModelContext } from './model-context';
+import { acceptTerms } from './terms';
 
 function callTool(page: Page, name: string, input: Record<string, unknown> = {}) {
   return page.evaluate(async ([toolName, args]) => {
@@ -95,6 +96,7 @@ test('queues a final mocked speech transcript from the editable preview', async 
 
   await page.goto('/');
   const preview = page.frameLocator('iframe[title="Editable WebMCP application preview"]');
+  await acceptTerms(preview);
   await expect(preview.getByRole('button', { name: 'Speak', exact: true })).toBeVisible({ timeout: 90_000 });
   await preview.getByRole('button', { name: 'Speak', exact: true }).click();
   await expect.poll(async () => {
@@ -107,6 +109,7 @@ test('dims the whole preview while a timed highlight blinks between two colors',
   await installModelContext(page);
   await page.goto('/');
   const preview = page.frameLocator('iframe[title="Editable WebMCP application preview"]');
+  await acceptTerms(preview);
   await expect(preview.getByRole('button', { name: 'Send to agent' })).toBeVisible({ timeout: 90_000 });
 
   expect(await callTool(page, 'highlight_ui_elements', {
@@ -135,6 +138,7 @@ test('reads the health record through its tools, sample and all', async ({ page 
   await installModelContext(page);
   await page.goto('/');
   const preview = page.frameLocator('iframe[title="Editable WebMCP application preview"]');
+  await acceptTerms(preview);
   await expect(preview.getByRole('button', { name: 'Send to agent' })).toBeVisible({ timeout: 90_000 });
 
   // With no Epic client id configured the host serves the de-identified sample,
@@ -184,13 +188,14 @@ test('declares its routes and lets the agent navigate to the record explorer', a
   await installModelContext(page);
   await page.goto('/');
   const preview = page.frameLocator('iframe[title="Editable WebMCP application preview"]');
+  await acceptTerms(preview);
   await expect(preview.getByRole('button', { name: 'Send to agent' })).toBeVisible({ timeout: 90_000 });
 
   // The guest declares its own routes; the host never guesses them.
   await expect.poll(async () => {
     const result = await callTool(page, 'navigate_to_route') as { routes?: { path: string }[] };
     return (result.routes ?? []).map((route) => route.path);
-  }, { timeout: 10_000 }).toEqual(['/', '/explore']);
+  }, { timeout: 10_000 }).toEqual(['/', '/explore', '/terms']);
 
   // Navigating by tool rather than by click is the point: a person driving this
   // by voice should not have to locate and hit a link.
@@ -228,6 +233,7 @@ test('shows the record view filling up while the host imports', async ({ page })
   // composer is in its no-agent state and has no send button. The nav is the
   // readiness signal that does not depend on whether a client is attached.
   await expect(preview.getByRole('link', { name: 'Explore your record' })).toBeVisible({ timeout: 90_000 });
+  await acceptTerms(preview);
   // The app starts on the landing page, and nothing has moved it.
   await expect(preview.getByRole('heading', { name: 'Downloading your record' })).toHaveCount(0);
 
@@ -337,4 +343,46 @@ test('speaks agent text through the page and stops on request', async ({ page })
 
   expect(await callTool(page, 'speak_text', { text: 'hello', voice: 'Nobody' }))
     .toMatchObject({ ok: false, error: expect.stringContaining('Unknown voice') });
+});
+
+test('holds every route behind the terms of service until they are accepted', async ({ page }) => {
+  await installModelContext(page);
+  await page.goto('/');
+  const preview = page.frameLocator('iframe[title="Editable WebMCP application preview"]');
+
+  // The four things the gate exists to say. Two of them are the reason it is a
+  // modal and not a banner: an attached agent forwards health information to
+  // OpenAI, and a healthcare professional must not use this site at all.
+  await expect(preview.getByText('Personal use only')).toBeVisible({ timeout: 90_000 });
+  await expect(preview.getByText('No health data reaches our server')).toBeVisible();
+  await expect(preview.getByText('An AI agent sees what you show it')).toBeVisible();
+  await expect(preview.getByText('Not medical advice')).toBeVisible();
+
+  // Nothing behind the dialog is reachable — the point of gating rather than
+  // disclosing. A covered link fails its actionability check rather than
+  // navigating, so the short timeout here is the assertion.
+  await expect(
+    preview.getByRole('link', { name: 'Explore your record' }).click({ timeout: 2_000 }),
+  ).rejects.toThrow();
+
+  // The full text is readable without leaving the dialog: linking to a page the
+  // modal itself blocks would be a dead end.
+  await preview.getByRole('button', { name: 'Read the full terms' }).click();
+  await expect(preview.getByRole('heading', { name: /The AI agent, and what OpenAI receives/ }))
+    .toBeVisible();
+  await expect(preview.getByRole('heading', { name: /Healthcare professionals must not use this site/ }))
+    .toBeVisible();
+
+  await acceptTerms(preview);
+
+  // And the same text stays available afterwards as an ordinary route.
+  await preview.getByRole('link', { name: 'Terms', exact: true }).first().click();
+  await expect(preview.getByRole('heading', { name: 'The terms you agreed to.', level: 1 }))
+    .toBeVisible();
+
+  // Acceptance is host-side state, so it survives the container reboot a reload
+  // forces on the guest.
+  await page.goto('/');
+  await expect(preview.getByRole('button', { name: 'Send to agent' })).toBeVisible({ timeout: 90_000 });
+  await expect(preview.getByRole('button', { name: 'Agree and continue' })).toHaveCount(0);
 });

@@ -5,14 +5,21 @@ import AgentComposer from './components/AgentComposer';
 import ExploreView from './components/ExploreView';
 import HomeView from './components/HomeView';
 import { useImportState } from './components/import-progress';
+import TermsGate from './components/TermsGate';
+import TermsView from './components/TermsView';
 import { navigate, ROUTES, RouteLink, useHostNavigation, useRoute } from './components/router';
 
 /**
  * Formless Health, running as Formless Labs' guest application.
  *
- * Two routes, ported from the Next.js app: the landing page and the record
- * explorer. Everything an agent might rewrite lives under `src/components/`;
- * everything sensitive stays on the host and is reached through the bridge.
+ * Three routes: the landing page and the record explorer, both ported from the
+ * Next.js app, plus the terms of service. Everything an agent might rewrite
+ * lives under `src/components/`; everything sensitive stays on the host and is
+ * reached through the bridge.
+ *
+ * `TermsGate` sits over all three. Nobody connects a record before agreeing to
+ * what happens to it — including that an attached agent can send parts of it to
+ * OpenAI, and that a healthcare professional must not use this site at all.
  */
 
 export default function App() {
@@ -59,17 +66,41 @@ export default function App() {
           >
             Explore
           </RouteLink>
+          <RouteLink
+            to="/terms"
+            agentId="nav-terms"
+            agentLabel="Terms"
+            agentDescription="Goes to the terms of service."
+          >
+            Terms
+          </RouteLink>
         </nav>
       </header>
 
-      {route === '/explore' ? <ExploreView /> : <main><HomeView /></main>}
+      {route === '/explore' ? <ExploreView /> : null}
+      {route === '/terms' ? <TermsView /> : null}
+      {route === '/' ? <main><HomeView /></main> : null}
 
       <AgentComposer />
 
       <footer>
         <span>© {new Date().getFullYear()} Formless Health</span>
-        <span>Patient-authorized. Read-only. Built for clarity.</span>
+        <span>
+          Patient-authorized. Read-only. Built for clarity. ·{' '}
+          <RouteLink
+            to="/terms"
+            agentId="footer-terms"
+            agentLabel="Terms of service"
+            agentDescription="Goes to the terms of service."
+          >
+            Terms
+          </RouteLink>
+        </span>
       </footer>
+
+      {/* Rendered last so it sits over whatever route is behind it. `showModal`
+          blocks the page until the terms are accepted. */}
+      <TermsGate />
 
       {/* The bridge writes highlight announcements here. Do not remove. */}
       <div id="agent-announcer" className="sr-only" aria-live="polite" />
