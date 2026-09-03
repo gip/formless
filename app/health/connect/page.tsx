@@ -1,6 +1,6 @@
 import ConnectLauncher from './ConnectLauncher';
 
-export const metadata = { title: 'Connecting · WebAlly' };
+export const metadata = { title: 'Connecting · Formless Health' };
 
 /**
  * The same-origin landing the popup opens at, before it redirects itself to the

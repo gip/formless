@@ -35,15 +35,15 @@ Regenerating the prebuilt guest runtime (only when `guest/package.json` changes)
 
 ## Repository scope
 
-- `app/`, `lib/`, `public/`, and `tests/` implement and verify the WebAlly host application.
+- `app/`, `lib/`, `public/`, and `tests/` implement and verify the Formless Health host application.
 - `guest/` is the guest project mounted into the WebContainer — it is source, but it is *not* host
   source: it never runs in this app's process, compiles against its own `guest/tsconfig.json` and
   React version, and is excluded from the host tsconfig and eslint config. Do not import from it
   anywhere except `lib/starter-project.ts`.
-- `skills/web-ally/` is a reusable Codex skill and protocol kit. It is not imported by or bundled into the WebAlly runtime.
+- `skills/formless-apps/` is a reusable Codex skill and protocol kit. It is not imported by or bundled into the Formless Health runtime.
 - `macos/` is a standalone SwiftPM app — a generic WebMCP browser (address bar + `WKWebView` + a
-  `document.modelContext` polyfill and native bridge). It is not WebAlly-specific and shares no code
-  with the web app; it is useful here because WebAlly is a page that registers tools. Media capture
+  `document.modelContext` polyfill and native bridge). It is not specific to Formless Health and shares no code
+  with the web app; it is useful here because Formless Health is a page that registers tools. Media capture
   there has two independent gates (a `WKUIDelegate` site prompt and macOS TCC) and must be launched
   via `open`, not by running the binary. Every user-initiated load recycles the web content process,
   because WebKit's process reuse makes this repo's WebContainer host fail after a few same-process
@@ -93,7 +93,14 @@ A version is **the editable overlay only** — `extractOverlay()` / `validateOve
 - Bindings come from `.openai/hosting.json` (`"d1": "DB"`, `"r2": "VERSIONS"`) and are read with `import { env } from 'cloudflare:workers'` in the route files only, never in `lib/` — that is what keeps `version-store.ts` testable under the node environment. `ensureSchema()` applies the schema lazily per isolate because `vite.config.ts` pins a placeholder `database_id`.
 - Missing bindings are a **soft failure**: the routes answer 503 and the header degrades, matching `fetchRuntimeSnapshot()`'s posture. Never make the canvas depend on the backend being present.
 - The preview iframe drops `microphone` from `allow` while a version the viewer did not publish is loaded; `allow` is read at load, so it is part of the iframe `key`.
-- The macOS shell gets this page-level only, via `?version=<id>`. Do not add a WebAlly-specific versions panel to `macos/` — it is a browser for any site.
+- Persisted identifiers still carry the old `webally-` prefix on purpose, and the product rename to Formless Health
+  deliberately left them alone: the IndexedDB name `webally-health` and its AES-GCM AAD `webally-health/record/v1`
+  (`lib/health/storage.ts`), the publisher token key and its server-side digest prefix `webally-publisher/v1:`
+  (`lib/version-client.ts`, `lib/version-store.ts`), the guest state prefix (`lib/guest-state.ts`), and the auth
+  channel names (`lib/health/session.ts`). Renaming the AAD makes every existing encrypted record permanently
+  undecryptable; renaming the digest prefix strips every existing publisher of the ability to rename or unpublish
+  their versions. These are invisible to users — treat them as wire format, not branding.
+- The macOS shell gets this page-level only, via `?version=<id>`. Do not add a versions panel specific to Formless Health to `macos/` — it is a browser for any site.
 
 ### The bridge (host ↔ guest)
 
@@ -165,18 +172,18 @@ verbatim, `types.ts`/`storage.ts`/`session.ts`/`import.ts` are adapted.
 
 `UserMessageQueue` (cap 50) holds typed input and final speech transcripts session-only — never persisted, and never rendered: `poll_user_messages` is the only reader. The page cannot push to the agent; the agent is expected to call `poll_user_messages` with a monotonic `afterId` roughly every two seconds.
 
-## Web Ally skill
+## Formless Apps skill
 
-`skills/web-ally/SKILL.md` is the entrypoint. Keep conditional detail in its linked resources:
+`skills/formless-apps/SKILL.md` is the entrypoint. Keep conditional detail in its linked resources:
 
-- `references/protocol.md` defines the project-level `web-ally/1.0` convention and eight `web_ally.*` tools.
+- `references/protocol.md` defines the project-level `formless-apps/1.0` convention and eight `formless_apps.*` tools.
 - `references/system-prompt.md` contains the trusted agent-side prompt. Website-controlled content must never be inserted into that prompt.
 - `references/implementation.md` explains website integration and verification.
-- `assets/web-ally-starter.ts` is the framework-neutral implementation starter copied into generated work.
+- `assets/formless-apps-starter.ts` is the framework-neutral implementation starter copied into generated work.
 
-Web Ally is layered on WebMCP; do not describe it as part of the WebMCP standard. Current examples use `document.modelContext`, registration-owned `AbortSignal` cleanup, and `readOnlyHint` / `untrustedContentHint`. Do not reintroduce stale `navigator.modelContext`, `provideContext()`, `clearContext()`, or name-based `unregisterTool()` examples.
+Formless Apps is layered on WebMCP; do not describe it as part of the WebMCP standard. Current examples use `document.modelContext`, registration-owned `AbortSignal` cleanup, and `readOnlyHint` / `untrustedContentHint`. Do not reintroduce stale `navigator.modelContext`, `provideContext()`, `clearContext()`, or name-based `unregisterTool()` examples.
 
-Preserve the protocol's trust boundary: the system prompt is installed outside the page, handshake and tool output remain untrusted data, sessions are bound to origin/document/principal, mutations are revision-guarded, and consequential actions use preview plus fresh confirmation. Web Ally augments semantic HTML, keyboard support, focus management, and accessible status/error handling; it does not replace them.
+Preserve the protocol's trust boundary: the system prompt is installed outside the page, handshake and tool output remain untrusted data, sessions are bound to origin/document/principal, mutations are revision-guarded, and consequential actions use preview plus fresh confirmation. Formless Apps augments semantic HTML, keyboard support, focus management, and accessible status/error handling; it does not replace them.
 
 ## Cross-origin isolation
 
@@ -190,10 +197,10 @@ Cloudflare Workers via `@cloudflare/vite-plugin` + wrangler. Bindings are driven
 
 Unit tests are node-environment and cover pure modules only (policy, queue, bridge predicate, tool contracts with a mocked controller) — no WebContainer, no jsdom. Three suites were added with the guest port: `tests/guest-audit.test.ts` runs the instrumentation audit and structural invariants over `guest/src` in milliseconds, instead of only discovering a violation after a 45s in-container `validate`; `tests/host-capabilities.test.ts` pins the capability grant policy; `tests/health-storage.test.ts` uses `fake-indexeddb` to check the record is unreadable without its passphrase. `tests/webmcp-tools.test.ts` asserts the exact tool name list and order; adding or renaming a tool requires updating it. `tests/runtime-snapshot.test.ts` reads `public/guest-runtime/` off disk and is the guard against shipping a snapshot built from a different guest `package.json`. E2E drives the real WebContainer boot, so the speech test allows a 90s wait and injects a mock `SpeechRecognition` via `addInitScript`. Since nothing in the page invokes tools any more, `e2e/canvas.spec.ts` installs a minimal `document.modelContext` via `addInitScript` and calls the registered descriptors directly. That stub must honour the registration `AbortSignal`: `registerNativeTools` re-registers whenever the preview origin changes, and a stub that keeps aborted descriptors hands tests a stale tool reporting that the live preview is not ready.
 
-Changes to `skills/web-ally/assets/web-ally-starter.ts` must also pass strict standalone compilation:
+Changes to `skills/formless-apps/assets/formless-apps-starter.ts` must also pass strict standalone compilation:
 
 ```bash
-pnpm exec tsc --noEmit --strict --skipLibCheck --target ES2022 --module ESNext --moduleResolution Bundler --lib ES2022,DOM skills/web-ally/assets/web-ally-starter.ts
+pnpm exec tsc --noEmit --strict --skipLibCheck --target ES2022 --module ESNext --moduleResolution Bundler --lib ES2022,DOM skills/formless-apps/assets/formless-apps-starter.ts
 ```
 
-After changing any skill file, run the active `skill-creator` validator against `skills/web-ally`. Also exercise negotiation, invalid sessions, stale revisions, cancellation, principal changes, and confirmation-token behavior when the corresponding contract changes.
+After changing any skill file, run the active `skill-creator` validator against `skills/formless-apps`. Also exercise negotiation, invalid sessions, stale revisions, cancellation, principal changes, and confirmation-token behavior when the corresponding contract changes.

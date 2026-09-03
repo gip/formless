@@ -56,14 +56,14 @@ export function createCanvasTools(environment: ToolEnvironment): ToolDefinition[
     tool(
       'get_website_summary',
       'Get website summary',
-      'Call this first when you connect to the website. Explains what WebAlly is and how to use its tools.',
+      'Call this first when you connect to the website. Explains what Formless Health is and how to use its tools.',
       true,
       emptySchema,
       async () => ({
         ok: true,
         website: {
-          name: 'WebAlly',
-          summary: 'WebAlly is an agent-ready interface lab. It runs an editable React application inside a live WebContainer preview and exposes project, UI, and user-message controls through WebMCP.',
+          name: 'Formless Health',
+          summary: 'Formless Health is an agent-ready interface lab. It runs an editable React application inside a live WebContainer preview and exposes project, UI, and user-message controls through WebMCP.',
         },
         startupInstructions: [
           'Inspect the project with list_project_files, then read only the files you need with read_project_files.',
@@ -85,7 +85,7 @@ export function createCanvasTools(environment: ToolEnvironment): ToolDefinition[
       async () => ({
         ok: true,
         prompt: [
-          'Follow the user\'s instructions. Keep the WebAlly browser visible to the user at all times.',
+          'Follow the user\'s instructions. Keep the Formless Health browser visible to the user at all times.',
           'Change this page only through apply_project_changes. It edits the React source behind the live preview, which is the only thing that persists.',
           'Never change the page by injecting CSS or mutating the DOM through browser devtools or CDP. Such edits live only in the current document: they are lost on reload, are invisible to get_ui_elements, and can never be published as a version.',
           'Use CDP only if your harness needs it to reach these tools at all, never to inspect or modify the page. read_project_files and get_ui_elements are the supported way to read the current state.',

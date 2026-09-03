@@ -333,9 +333,9 @@ export default function CanvasApp() {
   return (
     <main className="canvas-shell">
       <header className="topbar">
-        <div className="brand-mark" aria-hidden="true">W</div>
+        <div className="brand-mark" aria-hidden="true">F</div>
         <div className="brand-copy">
-          <p className="eyebrow">WebAlly</p>
+          <p className="eyebrow">Formless Health</p>
           <h1>Agent-ready interface lab</h1>
         </div>
         <VersionSwitcher
@@ -368,7 +368,7 @@ export default function CanvasApp() {
         />
       ) : null}
 
-      <section className="workspace" aria-label="WebAlly workspace">
+      <section className="workspace" aria-label="Formless Health workspace">
         <div className="preview-stage">
           <div className="preview-toolbar">
             <span className="browser-dot red" /><span className="browser-dot amber" /><span className="browser-dot green" />

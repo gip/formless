@@ -54,7 +54,7 @@ enum SelfCheck {
         emit(["before": before, "after": after], exitCode: after["microphone"] == "authorized" ? 0 : 1)
     }
 
-    /// Polls the WebAlly phase label until the canvas is ready, the runtime errors out, or the
+    /// Polls the Formless Health phase label until the canvas is ready, the runtime errors out, or the
     /// budget expires. Returns seconds elapsed so slow and stuck are distinguishable.
     @MainActor
     static func measureReady(

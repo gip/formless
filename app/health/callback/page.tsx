@@ -1,6 +1,6 @@
 import CallbackClient from './CallbackClient';
 
-export const metadata = { title: 'Completing sign-in · WebAlly' };
+export const metadata = { title: 'Completing sign-in · Formless Health' };
 
 /**
  * The registered OAuth `redirect_uri`. Like `/health/connect`, this must never

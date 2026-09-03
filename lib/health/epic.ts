@@ -4,7 +4,7 @@
  * It is browser code and always was: PKCE with `code_challenge_method=S256`, a
  * public client with no secret, and the token exchange running in the page. What
  * changes here is only *which* page runs it. In yesyouhealth this executed in the
- * app the user was looking at; in WebAlly it runs on the host, because the guest
+ * app the user was looking at; in Formless Health it runs on the host, because the guest
  * lives at an ephemeral WebContainer origin that Epic can never have registered
  * as a redirect_uri — and because the guest is rewritable by an agent, which is
  * not somewhere an access token should ever be.

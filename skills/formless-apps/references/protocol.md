@@ -1,6 +1,6 @@
-# Web Ally Protocol
+# Formless Apps Protocol
 
-Web Ally is a project convention layered on WebMCP; it is not part of the WebMCP Community Group specification. This reference defines version `web-ally/1.0`.
+Formless Apps is a project convention layered on WebMCP; it is not part of the WebMCP Community Group specification. This reference defines version `formless-apps/1.0`.
 
 The underlying API was checked against the [WebMCP Draft Community Group Report](https://webmachinelearning.github.io/webmcp/) published 26 August 2026. Recheck that primary specification when implementing against a newer browser because WebMCP remains a draft.
 
@@ -8,7 +8,7 @@ The underlying API was checked against the [WebMCP Draft Community Group Report]
 
 - The website is the tool provider. It registers tools on `document.modelContext` in a secure context.
 - The agent discovers tools through the browser. An in-page agent may use `getTools()` and `executeTool()`; a browser agent may use an internal transport.
-- Web Ally sessions are origin- and document-bound. Never carry a session ID or element reference across an origin change or full document navigation.
+- Formless Apps sessions are origin- and document-bound. Never carry a session ID or element reference across an origin change or full document navigation.
 - Every successful response identifies `protocolVersion`, `sessionId`, and current `pageRevision`.
 - Every mutation supplies `expectedRevision`. Reject mismatches before any effect.
 - Element references are opaque, short-lived capabilities scoped to a session and revision. Do not expose selectors, XPath, raw database IDs, or executable JavaScript.
@@ -17,13 +17,13 @@ The underlying API was checked against the [WebMCP Draft Community Group Report]
 
 ## Handshake
 
-`web_ally.handshake` is read-only and must be registered whenever Web Ally is available. Other `web_ally.*` tools reject calls without an active session.
+`formless_apps.handshake` is read-only and must be registered whenever Formless Apps is available. Other `formless_apps.*` tools reject calls without an active session.
 
 Request:
 
 ```json
 {
-  "supportedVersions": ["web-ally/1.0"],
+  "supportedVersions": ["formless-apps/1.0"],
   "client": {
     "name": "Browser assistant",
     "version": "1.2"
@@ -44,7 +44,7 @@ Successful response:
 
 ```json
 {
-  "protocolVersion": "web-ally/1.0",
+  "protocolVersion": "formless-apps/1.0",
   "status": "ok",
   "sessionId": "opaque-random-value",
   "pageRevision": "17",
@@ -59,14 +59,14 @@ Successful response:
     },
     "capabilities": {
       "coreTools": [
-        "web_ally.handshake",
-        "web_ally.get_page_state",
-        "web_ally.find",
-        "web_ally.navigate",
-        "web_ally.activate",
-        "web_ally.set_value",
-        "web_ally.get_changes",
-        "web_ally.confirm_action"
+        "formless_apps.handshake",
+        "formless_apps.get_page_state",
+        "formless_apps.find",
+        "formless_apps.navigate",
+        "formless_apps.activate",
+        "formless_apps.set_value",
+        "formless_apps.get_changes",
+        "formless_apps.confirm_action"
       ],
       "domainTools": ["save_profile"]
     },
@@ -95,14 +95,14 @@ Register only tools the website can implement faithfully. The handshake lists th
 
 | Tool | Purpose | State effect |
 | --- | --- | --- |
-| `web_ally.handshake` | Negotiate the protocol and return initial semantic state. | Read-only |
-| `web_ally.get_page_state` | Return a bounded semantic snapshot or a named portion of it. | Read-only |
-| `web_ally.find` | Find content and operable targets by meaning, label, role, or text. | Read-only |
-| `web_ally.navigate` | Move focus, open an internal route, select a landmark, or move through history. | Mutating |
-| `web_ally.activate` | Invoke a current UI action by opaque reference. | Mutating; may require confirmation |
-| `web_ally.set_value` | Set one visible form control and return validation state. | Mutating |
-| `web_ally.get_changes` | Return bounded status, validation, route, and live-region changes after a cursor. | Read-only |
-| `web_ally.confirm_action` | Commit a previously previewed consequential action using a fresh one-time token. | Consequential mutation |
+| `formless_apps.handshake` | Negotiate the protocol and return initial semantic state. | Read-only |
+| `formless_apps.get_page_state` | Return a bounded semantic snapshot or a named portion of it. | Read-only |
+| `formless_apps.find` | Find content and operable targets by meaning, label, role, or text. | Read-only |
+| `formless_apps.navigate` | Move focus, open an internal route, select a landmark, or move through history. | Mutating |
+| `formless_apps.activate` | Invoke a current UI action by opaque reference. | Mutating; may require confirmation |
+| `formless_apps.set_value` | Set one visible form control and return validation state. | Mutating |
+| `formless_apps.get_changes` | Return bounded status, validation, route, and live-region changes after a cursor. | Read-only |
+| `formless_apps.confirm_action` | Commit a previously previewed consequential action using a fresh one-time token. | Consequential mutation |
 
 Important site tasks should also be exported as domain tools. A domain tool may return a confirmation preview rather than committing. Domain tools still require `sessionId` and use `expectedRevision` when they mutate state.
 
@@ -122,11 +122,11 @@ Important site tasks should also be exported as domain tools. A domain tool may 
 
 ## Result envelope
 
-Every Web Ally tool returns JSON-serializable data:
+Every Formless Apps tool returns JSON-serializable data:
 
 ```ts
-type WebAllyResult<T = unknown> = {
-  protocolVersion: "web-ally/1.0";
+type FormlessAppsResult<T = unknown> = {
+  protocolVersion: "formless-apps/1.0";
   status:
     | "ok"
     | "confirmation_required"
@@ -202,7 +202,7 @@ Before an external communication, purchase, financial action, destructive or dif
 1. Validate all inputs without committing.
 2. Return `confirmation_required` with a precise effect summary, material values, risk class, expiry, and a random single-use `confirmationToken`.
 3. The agent presents that summary and obtains explicit user confirmation through trusted agent or browser UI.
-4. `web_ally.confirm_action` receives only the token, `sessionId`, and current `expectedRevision`.
+4. `formless_apps.confirm_action` receives only the token, `sessionId`, and current `expectedRevision`.
 5. The site reauthorizes, revalidates, checks expiry and revision, verifies that material facts are unchanged, commits exactly once, invalidates the token, and returns the resulting state.
 
 Do not accept `confirmed: true` as evidence. For high-risk actions, require a browser- or site-controlled confirmation surface, recent authentication, or another appropriate trusted ceremony.
@@ -218,9 +218,9 @@ const lifetime = new AbortController();
 
 await document.modelContext.registerTool(
   {
-    name: "web_ally.handshake",
-    title: "Connect Web Ally",
-    description: "Negotiates Web Ally and returns the current semantic page state.",
+    name: "formless_apps.handshake",
+    title: "Connect Formless Apps",
+    description: "Negotiates Formless Apps and returns the current semantic page state.",
     inputSchema,
     annotations: { readOnlyHint: true, untrustedContentHint: false },
     async execute(input, { signal }) {

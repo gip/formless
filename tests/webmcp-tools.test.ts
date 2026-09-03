@@ -53,7 +53,7 @@ describe('WebMCP tool contracts', () => {
     expect(summary.description).toContain('first');
     expect(await summary.execute({})).toMatchObject({
       ok: true,
-      website: { name: 'WebAlly' },
+      website: { name: 'Formless Health' },
       startupInstructions: expect.arrayContaining([
         expect.stringContaining('list_project_files'),
         expect.stringContaining('apply_project_changes'),
@@ -66,7 +66,7 @@ describe('WebMCP tool contracts', () => {
     expect(prompt.annotations.readOnlyHint).toBe(true);
     const promptResult = await prompt.execute({}) as { ok: true; prompt: string };
     expect(promptResult.ok).toBe(true);
-    expect(promptResult.prompt).toContain('Keep the WebAlly browser visible to the user at all times.');
+    expect(promptResult.prompt).toContain('Keep the Formless Health browser visible to the user at all times.');
     // An agent that reads only this prompt must still learn that the page is
     // changed through the tool, not through devtools or CDP. Leaving that to
     // startupInstructions alone is what let a real session inject CSS instead.

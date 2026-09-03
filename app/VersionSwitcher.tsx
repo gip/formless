@@ -157,7 +157,7 @@ export default function VersionSwitcher(props: VersionSwitcherProps) {
                   placeholder="What makes this interface different?"
                 />
               </label>
-              <p className="version-note">Published versions are visible to everyone who opens WebAlly.</p>
+              <p className="version-note">Published versions are visible to everyone who opens Formless Health.</p>
               <div className="version-confirm-actions">
                 <button type="button" className="primary" onClick={submitPublish} disabled={!name.trim() || busy}>
                   Publish
