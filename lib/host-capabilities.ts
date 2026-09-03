@@ -26,12 +26,17 @@ export interface AuthStatus {
   /** True when at least one provider has a client id. */
   configured: boolean;
   /**
-   * Provider ids that actually have a client id configured. Epic issues separate
-   * non-production and production ids, so "configured" is per provider, not
-   * global — without this the UI offers to connect to an organization it has no
-   * credential for, and the failure only surfaces at the provider.
+   * Which credentials exist. Epic issues separate non-production and production
+   * client ids, so "configured" is per *environment*, not global — without this
+   * the UI offers to connect to an organization it has no credential for, and the
+   * failure only surfaces at the provider.
+   *
+   * This used to be a list of provider ids. That could only ever answer for the
+   * hand-written registry, so every organization resolved from Epic's published
+   * directory failed the membership test and rendered with a permanently disabled
+   * connect button. The question was always about credentials, not identity.
    */
-  configuredProviders: string[];
+  credentials: { production: boolean; sandbox: boolean };
   connected: boolean;
   provider: string | null;
   /** `empty` | `locked` | `unlocked` — mirrors the record's storage state. */
@@ -69,6 +74,13 @@ export interface HealthPort {
    * surface the guest can reach is unchanged by this method's existence.
    */
   snapshot(): Promise<HealthSnapshot>;
+  /**
+   * Every organization the user can pick, curated first then Epic's directory.
+   *
+   * Typed `unknown` for the same reason `getRecord()` is: this module stays free
+   * of `lib/health/**` imports so it can be exercised against stub ports.
+   */
+  providers(): Promise<unknown>;
   connect(params: { providerId: string; includeAttachments: boolean }): Promise<AuthStatus>;
   disconnect(): Promise<AuthStatus>;
   getRecord(): Promise<unknown>;
@@ -182,6 +194,9 @@ export async function dispatchCapability(
 
     case 'auth.status':
       return deps.health.status();
+
+    case 'auth.providers':
+      return deps.health.providers();
 
     case 'auth.connect':
       return deps.health.connect({

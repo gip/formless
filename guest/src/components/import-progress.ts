@@ -33,6 +33,14 @@ export interface ImportState {
   progress?: ImportProgress;
   /** The provider being imported from, as the host identified it. */
   providerId?: string;
+  /**
+   * Its display name, sent by the host.
+   *
+   * Not looked up from `PROVIDER_OPTIONS`: that holds only the curated few, so an
+   * organization from Epic's directory would resolve to nothing and the panel
+   * would silently drop the line naming where the record is coming from.
+   */
+  providerName?: string;
   /** Why the last import stopped, when it failed. Cleared when the next one starts. */
   error?: string;
 }
@@ -98,10 +106,16 @@ export function importSettled(): void {
 // before anything that renders progress is mounted — that event is the reason
 // the record view gets mounted at all.
 onHostEvent('import.started', (payload) => {
-  const providerId = (payload as { providerId?: unknown } | undefined)?.providerId;
+  const started = payload as { providerId?: unknown; providerName?: unknown } | undefined;
+  const providerId = started?.providerId;
+  const providerName = started?.providerName;
   awaitingRecord = false;
   stopSettleTimer();
-  set({ active: true, ...(typeof providerId === 'string' ? { providerId } : {}) });
+  set({
+    active: true,
+    ...(typeof providerId === 'string' ? { providerId } : {}),
+    ...(typeof providerName === 'string' ? { providerName } : {}),
+  });
 });
 
 onHostEvent('import.progress', (payload) => {

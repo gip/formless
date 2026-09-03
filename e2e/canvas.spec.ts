@@ -257,7 +257,10 @@ test('shows the record view filling up while the host imports', async ({ page })
 
   // A download starting takes the user to the record view on its own: the
   // sign-in popup has just closed, and this is where the record will appear.
-  await pushHostEvent(page, 'import.started', { providerId: 'ucsf' });
+  // The host sends the display name alongside the id: the guest holds only the
+  // curated organizations and cannot resolve one of Epic's ~477 directory
+  // entries back to a name on its own.
+  await pushHostEvent(page, 'import.started', { providerId: 'ucsf', providerName: 'UCSF Health' });
   await expect(preview.getByRole('heading', { name: 'Downloading your record' }))
     .toBeVisible({ timeout: 15_000 });
   await expect(preview.getByText('From UCSF Health')).toBeVisible();

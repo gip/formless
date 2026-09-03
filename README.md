@@ -50,6 +50,18 @@ Register `<origin>/health/callback` as the redirect URI in your Epic app
 separate non-production and production client ids for the same app, so
 `NEXT_PUBLIC_EPIC_SANDBOX_CLIENT_ID` overrides the id for the Epic Sandbox provider.
 
+One production client id covers every organization: Epic registers the app once
+and each customer health system enables it. The organizations you can search for
+come from `public/directory/epic-r4.json`, a committed snapshot of Epic's
+published endpoint list. Refresh it with:
+
+```bash
+pnpm generate:directory        # re-reads https://open.epic.com/Endpoints/R4
+```
+
+Organizations needing a hand-written portal name, scope, or capability override
+go in `lib/health/providers.ts`, which wins over the snapshot on id.
+
 These are `NEXT_PUBLIC_`-prefixed because they are inlined at **build** time, so
 a deployed build needs them set when `pnpm build` runs — not added afterwards. That is safe: a PKCE client id is public by design and there is no
 client secret in this flow. The host runs the PKCE flow on its own stable

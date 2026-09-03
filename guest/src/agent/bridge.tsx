@@ -353,11 +353,26 @@ export function onHostEvent(event: string, handler: HostEventHandler): () => voi
 
 export interface AuthStatus {
   configured: boolean;
-  /** Provider ids that have a client id configured on the host. */
-  configuredProviders: string[];
+  /**
+   * Which Epic client ids the host holds. Epic issues separate non-production and
+   * production ids, so readiness is per *environment* — an organization is
+   * connectable when the credential for its environment exists.
+   *
+   * Mirrors `AuthStatus` in `lib/host-capabilities.ts`; the two are hand-kept in
+   * sync and TypeScript cannot see across `postMessage`.
+   */
+  credentials: { production: boolean; sandbox: boolean };
   connected: boolean;
   provider: string | null;
   record: 'empty' | 'locked' | 'unlocked';
+}
+
+/** One selectable organization, as the host describes it. */
+export interface ProviderChoice {
+  id: string;
+  name: string;
+  myChartName: string;
+  sandbox: boolean;
 }
 
 export const hostState = {
@@ -368,6 +383,15 @@ export const hostState = {
 
 export const hostAuth = {
   status: () => hostRequest<AuthStatus>('auth.status'),
+  /**
+   * Every organization the user can pick — the curated few plus Epic's published
+   * directory, ~480 in all.
+   *
+   * Fetched whole, once, rather than searched per keystroke: the payload is small
+   * and `hostRequest` has no sequencing, so a search-as-you-type design could
+   * paint a slow early response over a fast later one.
+   */
+  providers: () => hostRequest<ProviderChoice[]>('auth.providers'),
   connect: (providerId: string, includeAttachments = false) =>
     hostRequest<AuthStatus>('auth.connect', { providerId, includeAttachments }, AUTH_TIMEOUT_MS),
   disconnect: () => hostRequest<AuthStatus>('auth.disconnect'),

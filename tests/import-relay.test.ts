@@ -37,8 +37,8 @@ afterEach(() => { vi.useRealTimers(); });
 describe('import relay', () => {
   it('announces the start with the provider being imported from', () => {
     const { relay, events } = setup();
-    relay.start('ucsf');
-    expect(events).toEqual([{ event: 'import.started', payload: { providerId: 'ucsf' } }]);
+    relay.start('ucsf', 'UCSF Health');
+    expect(events).toEqual([{ event: 'import.started', payload: { providerId: 'ucsf', providerName: 'UCSF Health' } }]);
   });
 
   it('emits nothing before a start', () => {
@@ -52,7 +52,7 @@ describe('import relay', () => {
 
   it('collapses a burst of reports into one event per interval', () => {
     const { relay, events } = setup();
-    relay.start('ucsf');
+    relay.start('ucsf', 'UCSF Health');
     for (let index = 1; index <= 50; index += 1) relay.progress(report({ resourceCount: index }));
 
     vi.advanceTimersByTime(200);
@@ -65,7 +65,7 @@ describe('import relay', () => {
 
   it('keeps emitting while reports keep arriving', () => {
     const { relay, events } = setup();
-    relay.start('ucsf');
+    relay.start('ucsf', 'UCSF Health');
     relay.progress(report({ resourceCount: 1 }));
     vi.advanceTimersByTime(200);
     relay.progress(report({ resourceCount: 2 }));
@@ -76,7 +76,7 @@ describe('import relay', () => {
 
   it('flushes the final counts before the finish', () => {
     const { relay, events } = setup();
-    relay.start('ucsf');
+    relay.start('ucsf', 'UCSF Health');
     relay.progress(report({ resourceCount: 4210, completedSearches: 27 }));
     relay.finish({ ok: true });
 
@@ -92,7 +92,7 @@ describe('import relay', () => {
     // A pending throttled report arriving after the record has replaced the
     // panel would reopen it.
     const { relay, events } = setup();
-    relay.start('ucsf');
+    relay.start('ucsf', 'UCSF Health');
     relay.progress(report());
     relay.finish({ ok: true });
     const settled = events.length;
@@ -104,7 +104,7 @@ describe('import relay', () => {
 
   it('carries the failure to the guest, which may have navigated away', () => {
     const { relay, events } = setup();
-    relay.start('ucsf');
+    relay.start('ucsf', 'UCSF Health');
     relay.finish({ ok: false, error: 'Sign-in timed out.' });
     expect(events.at(-1)).toEqual({
       event: 'import.finished',
@@ -114,7 +114,7 @@ describe('import relay', () => {
 
   it('finishes once, however many times it is told to', () => {
     const { relay, events } = setup();
-    relay.start('ucsf');
+    relay.start('ucsf', 'UCSF Health');
     relay.finish({ ok: true });
     relay.finish({ ok: true });
     expect(events.filter((entry) => entry.event === 'import.finished')).toHaveLength(1);
@@ -122,12 +122,12 @@ describe('import relay', () => {
 
   it('starts the next run without waiting out the previous interval', () => {
     const { relay, events, reports } = setup();
-    relay.start('ucsf');
+    relay.start('ucsf', 'UCSF Health');
     relay.progress(report());
     vi.advanceTimersByTime(200);
     relay.finish({ ok: true });
 
-    relay.start('sutter');
+    relay.start('sutter', 'Sutter Health');
     // Host chrome is cleared so a second import does not open showing the
     // first one's counts.
     expect(reports.at(-1)).toBeUndefined();

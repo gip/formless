@@ -10,6 +10,7 @@
     "build": "next build",
     "start": "next start",
     "generate:starter": "node scripts/generate-starter-files.mjs",
+    "generate:directory": "node scripts/fetch-epic-directory.mjs",
     "lint": "eslint . --ignore-pattern .next",
     "typecheck": "tsc --noEmit",
     "typecheck:guest": "tsc --noEmit -p guest/tsconfig.json",

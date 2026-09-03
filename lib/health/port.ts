@@ -3,6 +3,7 @@
 import type { AuthStatus, HealthPort, HealthSnapshot } from '../host-capabilities';
 import { loadDemoRecord } from './demo-record';
 import { PROVIDERS } from './providers';
+import { listProviderChoices } from './registry';
 import {
   clearRecord,
   loadRecord,
@@ -86,15 +87,38 @@ export function epicScope(): string | null {
   return envValue('NEXT_PUBLIC_EPIC_SCOPE');
 }
 
-/** Provider ids with a usable client id. */
+/**
+ * Curated provider ids with a usable client id.
+ *
+ * Only ever answers for `PROVIDERS`, which is why it is not what the guest is
+ * told: an organization resolved from Epic's directory is not a member, and
+ * membership was never the question anyway. `epicCredentials()` is the wire
+ * answer; this stays because it is the honest per-id statement and is what
+ * `tests/health-config.test.ts` pins.
+ */
 export function configuredProviders(): string[] {
   return Object.keys(PROVIDERS).filter((id) => epicClientId(id) !== null);
+}
+
+/**
+ * Which client ids exist, by environment.
+ *
+ * Every production organization shares one client id — Epic registers the app
+ * once — so this is two booleans regardless of how many organizations the
+ * directory carries.
+ */
+export function epicCredentials(): { production: boolean; sandbox: boolean } {
+  return {
+    production: epicClientId('ucsf') !== null,
+    sandbox: epicClientId('epic-sandbox') !== null,
+  };
 }
 
 export function isEpicConfigured(): boolean {
   // Any provider will do. Reading only NEXT_PUBLIC_EPIC_CLIENT_ID here meant that
   // configuring *just* the sandbox left the whole panel disabled.
-  return configuredProviders().length > 0;
+  const credentials = epicCredentials();
+  return credentials.production || credentials.sandbox;
 }
 
 export function createHealthPort(hooks: HealthHostHooks): HealthPort {
@@ -118,7 +142,7 @@ export function createHealthPort(hooks: HealthHostHooks): HealthPort {
     const state = await recordState();
     return {
       configured: isEpicConfigured(),
-      configuredProviders: configuredProviders(),
+      credentials: epicCredentials(),
       connected: state !== 'empty',
       provider: await storedProvider(),
       record: state,
@@ -159,6 +183,12 @@ export function createHealthPort(hooks: HealthHostHooks): HealthPort {
     status,
 
     snapshot: currentSnapshot,
+
+    // Public reference data — organization names and FHIR base URLs — but it
+    // rides under `auth.` and so inherits `requiresPrivilege`. That is the
+    // consistent choice: a version published by someone else already cannot
+    // call `auth.status`, so its connect panel is dark either way.
+    providers: listProviderChoices,
 
     async connect({ providerId, includeAttachments }) {
       if (epicClientId(providerId) === null) {

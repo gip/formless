@@ -1,7 +1,8 @@
 'use client';
 
 import { buildAuthorizationUrl, discoverSmart } from './epic';
-import { getProvider, providerScope } from './providers';
+import { providerScope } from './providers';
+import { resolveProvider } from './registry';
 
 /**
  * The OAuth round trip, run from the host origin.
@@ -89,7 +90,7 @@ export async function authorize(
   clientId: string,
   scope?: string,
 ): Promise<AuthResult> {
-  const provider = getProvider(providerId);
+  const provider = await resolveProvider(providerId);
   if (!provider) throw new Error(`Unknown provider: ${providerId}`);
 
   const smart = await discoverSmart(provider.fhirBase);

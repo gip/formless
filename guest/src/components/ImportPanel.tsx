@@ -1,6 +1,5 @@
 import { AgentTarget } from '../agent/bridge';
 import { groupLabel } from './explore-data';
-import { PROVIDER_OPTIONS } from './health-types';
 import type { ImportState } from './import-progress';
 
 /**
@@ -26,7 +25,6 @@ function detailLine(state: ImportState): string {
 }
 
 export default function ImportPanel({ state }: { state: ImportState }) {
-  const provider = PROVIDER_OPTIONS.find((option) => option.id === state.providerId);
   const progress = state.progress;
   const fraction = progress && progress.totalSearches > 0
     ? Math.min(1, progress.completedSearches / progress.totalSearches)
@@ -40,7 +38,7 @@ export default function ImportPanel({ state }: { state: ImportState }) {
             names run from "UCSF Health" to "Sutter My Health Online", and a
             display-size heading that rewraps per provider looks like a bug. */}
         <h1>Downloading your record</h1>
-        {provider ? <p className="explore-meta">From {provider.label}</p> : null}
+        {state.providerName ? <p className="explore-meta">From {state.providerName}</p> : null}
 
         <AgentTarget
           agentId="import-progress"

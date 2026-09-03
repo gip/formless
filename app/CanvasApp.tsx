@@ -153,10 +153,10 @@ export default function CanvasApp() {
           passphrase,
           clientId,
           ...(epicScope() ? { scope: epicScope()! } : {}),
-          onImportStart: () => {
+          onImportStart: (providerName) => {
             onImportStart();
             setImporting(true);
-            relay.start(providerId);
+            relay.start(providerId, providerName);
           },
           onProgress: (progress) => relay.progress(progress),
         });
