@@ -144,6 +144,15 @@ export function getResourceGroups(healthExport: HealthExportDocument): ResourceG
     groups.set("PriorAuthorization", healthExport.priorAuthorizations);
   }
   if (healthExport.attachments?.length) {
+    // Records exported by the original yesyouhealth pipeline — the bundled
+    // sample is one — carry note bodies as base64 under `data.Binary` rather
+    // than on the attachment. Reconciling the two by id here is what lets the
+    // text buttons work against the sample as well as a fresh import.
+    const bodies = new Map<string, JsonObject>();
+    for (const resource of asObjects(healthExport.data.Binary)) {
+      const id = text(resource.id);
+      if (id) bodies.set(id, resource);
+    }
     groups.set(
       "Binary",
       healthExport.attachments.map((attachment) => ({
@@ -156,6 +165,16 @@ export function getResourceGroups(healthExport: HealthExportDocument): ResourceG
           ? { sourceDocumentReference: attachment.sourceDocumentReference }
           : {}),
         ...(attachment.title ? { title: attachment.title } : {}),
+        // The note body, when the import captured one. `ExploreView` has always
+        // read `resource.text` for its "View raw" / "View text" buttons; until
+        // the host started keeping note prose there was never anything here to
+        // read, and both buttons reported the text as unavailable. `data` is the
+        // base64 fallback, decoded only when the user actually opens a file.
+        ...(attachment.text !== undefined
+          ? { text: attachment.text }
+          : bodies.get(attachment.binaryId)?.data !== undefined
+            ? { data: bodies.get(attachment.binaryId)!.data }
+            : {}),
       })),
     );
   }

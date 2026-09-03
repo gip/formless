@@ -1,6 +1,6 @@
 'use client';
 
-import type { AuthStatus, HealthPort } from '../host-capabilities';
+import type { AuthStatus, HealthPort, HealthSnapshot } from '../host-capabilities';
 import { loadDemoRecord } from './demo-record';
 import { PROVIDERS } from './providers';
 import {
@@ -125,22 +125,40 @@ export function createHealthPort(hooks: HealthHostHooks): HealthPort {
     };
   }
 
-  async function currentRecord(): Promise<HealthExportDocument | undefined> {
-    if (importing) return undefined;
+  /**
+   * The record, and which record it is.
+   *
+   * `getRecord()` collapses all of this to "a document or nothing", which is
+   * all the guest needs. The tools need more: the difference between the
+   * user's own history and a de-identified stand-in is the difference between
+   * a useful answer and a dangerously wrong one.
+   */
+  async function currentSnapshot(): Promise<HealthSnapshot> {
     const state = await recordState();
+    const base = await status();
+    if (importing) return { status: base, source: 'none', reason: 'importing' };
     // Locked means the key is gone from memory. Falling back to the demo record
     // here would quietly show a different person's data under the patient's own
     // heading, so a locked store yields nothing at all.
-    if (state === 'locked') return undefined;
+    if (state === 'locked') return { status: base, source: 'none', reason: 'locked' };
     if (state === 'unlocked') {
       cachedRecord ??= await loadRecord();
-      if (cachedRecord) return cachedRecord;
+      if (cachedRecord) return { status: base, source: 'connected', record: cachedRecord };
     }
-    return loadDemoRecord();
+    const demo = await loadDemoRecord();
+    return demo
+      ? { status: base, source: 'sample', record: demo }
+      : { status: base, source: 'none', reason: 'unavailable' };
+  }
+
+  async function currentRecord(): Promise<HealthExportDocument | undefined> {
+    return (await currentSnapshot()).record as HealthExportDocument | undefined;
   }
 
   return {
     status,
+
+    snapshot: currentSnapshot,
 
     async connect({ providerId, includeAttachments }) {
       if (epicClientId(providerId) === null) {

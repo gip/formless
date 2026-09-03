@@ -67,6 +67,7 @@ test('exposes the canvas and registers its tools natively', async ({ page }) => 
     'list_project_files', 'read_project_files', 'apply_project_changes', 'reset_project',
     'get_ui_elements', 'navigate_to_route', 'highlight_ui_elements', 'clear_ui_highlights', 'poll_user_messages',
     'speak_text', 'stop_speaking',
+    'get_health_summary', 'list_health_records', 'read_health_records',
     'list_app_versions', 'publish_app_version', 'switch_app_version',
   ]);
 });
@@ -86,12 +87,12 @@ test('registers each tool once and keeps it registered', async ({ page }) => {
   await page.goto('/');
 
   const count = () => page.evaluate(() => (window as unknown as { __tools: unknown[] }).__tools.length);
-  await expect.poll(count, { timeout: 10_000 }).toBe(16);
+  await expect.poll(count, { timeout: 10_000 }).toBe(19);
   await expect(page.getByText('Native WebMCP connected')).toBeVisible();
 
   await page.locator('.preview-status.ready').waitFor({ timeout: 90_000 });
   await page.waitForTimeout(1_500);
-  expect(await count()).toBe(16);
+  expect(await count()).toBe(19);
 });
 
 test('queues a final mocked speech transcript from the editable preview', async ({ page }) => {
@@ -157,6 +158,55 @@ test('dims the whole preview while a timed highlight blinks between two colors',
   await expect(overlay).toHaveCount(0, { timeout: 2_000 });
 });
 
+test('reads the health record through its tools, sample and all', async ({ page }) => {
+  await installModelContext(page);
+  await page.goto('/');
+  const preview = page.frameLocator('iframe[title="Editable WebMCP application preview"]');
+  await expect(preview.getByRole('button', { name: 'Send to agent' })).toBeVisible({ timeout: 90_000 });
+
+  // With no Epic client id configured the host serves the de-identified sample,
+  // and every result has to say so — an agent presenting a stranger's history
+  // as the user's own is the worst failure these tools have.
+  // `setHealthAccess` lands in a mount effect, so the first call can arrive
+  // before the port exists.
+  await expect.poll(
+    async () => (await callTool(page, 'get_health_summary') as { ok: boolean }).ok,
+    { timeout: 15_000 },
+  ).toBe(true);
+
+  const summary = await callTool(page, 'get_health_summary') as Record<string, unknown>;
+  expect(summary).toMatchObject({ ok: true, source: 'sample' });
+  expect(String(summary.notice)).toContain('not the user');
+  expect(summary.summary).toMatchObject({ totals: { resources: 1412 } });
+
+  const list = await callTool(page, 'list_health_records', { group: 'Observation', limit: 3 }) as {
+    total: number;
+    entries: { ref: string; title: string; date?: string }[];
+  };
+  expect(list.total).toBe(486);
+  expect(list.entries).toHaveLength(3);
+  expect(list.entries[0].ref).toMatch(/^Observation\//);
+
+  const read = await callTool(page, 'read_health_records', {
+    refs: [list.entries[0].ref],
+    format: 'fhir',
+  }) as { items: { fhir: { resourceType: string } }[] };
+  expect(read.items[0].fhir.resourceType).toBe('Observation');
+
+  // Clinical-note prose, decoded from the note bodies the fixture carries.
+  const note = await callTool(page, 'list_health_records', { group: 'Binary', limit: 1 }) as {
+    entries: { ref: string; hasText: boolean }[];
+  };
+  expect(note.entries[0].hasText).toBe(true);
+  const text = await callTool(page, 'read_health_records', {
+    refs: [note.entries[0].ref],
+    format: 'text',
+    maxChars: 200,
+  }) as { items: { text: string }[] };
+  expect(text.items[0].text.length).toBeGreaterThan(0);
+  expect(text.items[0].text).not.toContain('<br>');
+});
+
 test('declares its routes and lets the agent navigate to the record explorer', async ({ page }) => {
   await installModelContext(page);
   await page.goto('/');
@@ -183,6 +233,16 @@ test('declares its routes and lets the agent navigate to the record explorer', a
   const ids = elements.elements.map((element) => element.id);
   expect(ids).toContain('view-raw-json');
   expect(ids.some((id) => id.startsWith('resource-group-'))).toBe(true);
+
+  // Clinical-note prose reaches the guest too. These two buttons existed long
+  // before anything populated `resource.text`, so until note bodies were
+  // carried on the record they always reported the text as unavailable.
+  await preview.getByRole('button', { name: /Clinical-note files/i }).first().click();
+  await expect(preview.locator('.resource-kicker')).toHaveText(/CLINICAL-NOTE FILES/i);
+  await preview.locator('.resource-panel-actions button', { hasText: 'View text' }).click();
+  const noteText = await preview.locator('dialog[open]').innerText();
+  expect(noteText.length).toBeGreaterThan(200);
+  expect(noteText).not.toContain('<br>');
 
   expect(await callTool(page, 'navigate_to_route', { path: '/nowhere' }))
     .toMatchObject({ ok: false, error: expect.stringContaining('Unknown route') });

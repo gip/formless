@@ -16,6 +16,13 @@ export interface HealthAttachmentSummary {
   size: number;
   sourceDocumentReference?: string;
   title?: string;
+  /**
+   * The note body, for text attachments only. Additive to schemaVersion 1: a
+   * record imported before note capture simply has none, which is why this is
+   * optional rather than a schema bump — bumping would strip every record
+   * already encrypted on disk of its `isHealthExportDocument` validity.
+   */
+  text?: string;
 }
 
 export interface BrowserStorageSummary {

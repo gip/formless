@@ -1,6 +1,6 @@
 # Formless Health
 
-Formless Health is a preview-first demo of a browser agent inspecting, navigating, and updating a live React project. The outer host boots a WebContainer, mounts the protected guest project, and exposes sixteen WebMCP tools. The guest runs in a cross-origin iframe and reports its instrumented UI elements to the host through a versioned bridge.
+Formless Health is a preview-first demo of a browser agent inspecting, navigating, and updating a live React project. The outer host boots a WebContainer, mounts the protected guest project, and exposes nineteen WebMCP tools. The guest runs in a cross-origin iframe and reports its instrumented UI elements to the host through a versioned bridge.
 
 The guest is **YesYou Health** — a patient-authorized health record app with two routes, a landing page and a record explorer. It is a real interface rather than a synthetic demo, which is the point: a dense clinical record with 1,400+ resources across 17 types is exactly the kind of thing that is hard to navigate by hand and worth driving by voice.
 
@@ -100,10 +100,19 @@ publish runs without microphone access in the preview frame.
 - `poll_user_messages`
 - `speak_text` (the page says it out loud)
 - `stop_speaking`
+- `get_health_summary` (what the record holds, over what dates)
+- `list_health_records`
+- `read_health_records` (labelled fields, verbatim FHIR, or clinical-note prose)
 - `list_app_versions`
 - `publish_app_version`
 - `switch_app_version`
 - `navigate_to_route` (moves the preview between the routes the guest declares)
+
+The record is readable by the agent, not just by the guest. `get_health_summary` reports what the record
+holds and whether it is the user's own or the de-identified sample; `list_health_records` pages it as dated,
+titled lines; `read_health_records` returns the verbatim FHIR, or the decoded prose of a clinical note. All
+three refuse while a version published by someone else is loaded — the same `computeGrant()` rule the bridge
+applies, because guest-authored UI labels reach the agent through `get_ui_elements`.
 
 Speech is host-owned: `speak_text` runs the browser's own synthesizer on the host page, never in the
 preview, so a published version cannot drive the speaker. Chrome refuses to speak on a page with no

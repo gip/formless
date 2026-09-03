@@ -38,9 +38,37 @@ export interface AuthStatus {
   record: 'empty' | 'locked' | 'unlocked';
 }
 
+/**
+ * What the host knows about the record right now, including *which* record.
+ *
+ * `getRecord()` cannot answer that: it falls back to the de-identified sample
+ * whenever the store is empty, and returns nothing at all while an import is
+ * running or the store is locked — three very different situations that look
+ * identical to a caller. The guest does not need to tell them apart, because
+ * it renders connection state from `AuthStatus` anyway. A tool does: an agent
+ * narrating the sample as the user's own history is the worst thing this
+ * feature can do.
+ *
+ * `record` is typed `unknown` for the same reason `getRecord()` is — this
+ * module stays free of `lib/health/**` imports so it can be exercised against
+ * stub ports under the node test environment.
+ */
+export interface HealthSnapshot {
+  status: AuthStatus;
+  source: 'connected' | 'sample' | 'none';
+  /** Why there is no record. Only set when `source` is `none`. */
+  reason?: 'locked' | 'importing' | 'unavailable';
+  record?: unknown;
+}
+
 /** Everything the health subsystem exposes to the guest. Implemented in `lib/health/`. */
 export interface HealthPort {
   status(): Promise<AuthStatus>;
+  /**
+   * Host-only. Deliberately absent from `dispatchCapability`: the bridge
+   * surface the guest can reach is unchanged by this method's existence.
+   */
+  snapshot(): Promise<HealthSnapshot>;
   connect(params: { providerId: string; includeAttachments: boolean }): Promise<AuthStatus>;
   disconnect(): Promise<AuthStatus>;
   getRecord(): Promise<unknown>;

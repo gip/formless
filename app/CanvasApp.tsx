@@ -29,6 +29,7 @@ import {
   messageQueue,
   sendPreviewCommand,
   setElements,
+  setHealthAccess,
   setPreviewTarget,
   setRoutes,
   setVersionOperations,
@@ -200,6 +201,15 @@ export default function CanvasApp() {
   );
 
   useEffect(() => { setRoutes(routes); }, [routes]);
+
+  // The health tools are host-registered, so they read the port directly rather
+  // than through the bridge — but they consult the same `computeGrant()` the
+  // bridge does, so a version published by someone else is refused the record
+  // whichever way it is asked for.
+  useEffect(() => {
+    setHealthAccess({ snapshot: () => health.snapshot(), grant: () => grant });
+    return () => setHealthAccess(null);
+  }, [health, grant]);
 
   useEffect(() => controller.subscribe(setRuntime), [controller]);
 

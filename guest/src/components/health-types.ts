@@ -17,6 +17,8 @@ export interface HealthAttachmentSummary {
   size: number;
   sourceDocumentReference?: string;
   title?: string;
+  /** The note body, for text attachments only. Absent on older records. */
+  text?: string;
 }
 
 export interface BrowserStorageSummary {
