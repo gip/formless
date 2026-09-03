@@ -53,8 +53,19 @@ export interface ProviderOption {
 }
 
 /**
- * The provider list the connect panel offers. The host holds the real registry
- * and the client id; this is only what the user picks between.
+ * The organizations the connect panel can offer *before* the host answers.
+ *
+ * Deliberately only the hand-written few, not the registry: the host now serves
+ * ~480 organizations from Epic's published directory over `hostAuth.providers()`,
+ * and inlining those here would duplicate a list that already has one source of
+ * truth — and bloat every WebContainer mount with data the guest cannot use.
+ *
+ * This stays as the fallback so the picker is never empty and never blocks on a
+ * fetch: if the host is slow, unreachable, or this is a version published by
+ * someone else (which cannot call privileged methods at all), the panel still
+ * renders exactly what it rendered before the directory existed.
+ *
+ * `tests/guest-audit.test.ts` pins it against `lib/health/providers.ts`.
  */
 export const PROVIDER_OPTIONS: ProviderOption[] = [
   { id: 'ucsf', label: 'UCSF Health', myChartName: 'UCSF MyChart' },

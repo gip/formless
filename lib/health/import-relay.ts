@@ -29,8 +29,14 @@ export interface ImportRelayHooks {
 export type ImportResult = { ok: true } | { ok: false; error: string };
 
 export interface ImportRelay {
-  /** The download has begun. The guest treats this as "switch to the record view". */
-  start: (providerId: string) => void;
+  /**
+   * The download has begun. The guest treats this as "switch to the record view".
+   *
+   * Carries the display name as well as the id: the guest holds only the curated
+   * organizations, so it cannot resolve one of the ~477 directory entries back to
+   * a name on its own.
+   */
+  start: (providerId: string, providerName: string) => void;
   progress: (report: ImportProgressReport) => void;
   /** Ends the run. A finish without a start emits nothing: sign-in never got that far. */
   finish: (result: ImportResult) => void;
@@ -62,7 +68,7 @@ export function createImportRelay({
   }
 
   return {
-    start(providerId) {
+    start(providerId, providerName) {
       cancelPending();
       running = true;
       latest = undefined;
@@ -70,7 +76,7 @@ export function createImportRelay({
       // however recently the previous run finished.
       sentAt = 0;
       onReport(undefined);
-      emit('import.started', { providerId });
+      emit('import.started', { providerId, providerName });
     },
 
     progress(report) {

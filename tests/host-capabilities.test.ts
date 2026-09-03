@@ -46,13 +46,14 @@ function memoryState(): StatePort & { store: Map<string, unknown> } {
 function stubHealth(): HealthPort {
   const status = {
     configured: true,
-    configuredProviders: ['ucsf', 'epic-sandbox'],
+    credentials: { production: true, sandbox: true },
     connected: true,
     provider: 'ucsf',
     record: 'unlocked' as const,
   };
   return {
     status: vi.fn(async () => status),
+    providers: vi.fn(async () => [{ id: 'ucsf', name: 'UCSF Health', myChartName: 'UCSF MyChart', sandbox: false }]),
     snapshot: vi.fn(async () => ({ status, source: 'connected' as const, record: { schemaVersion: 1 } })),
     connect: vi.fn(async () => status),
     disconnect: vi.fn(async () => status),

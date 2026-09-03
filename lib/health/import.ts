@@ -1,7 +1,7 @@
 'use client';
 
 import { exportPatientRecord } from './epic';
-import { getProvider } from './providers';
+import { resolveProvider } from './registry';
 import { authorize } from './session';
 import { saveRecord } from './storage';
 import type { HealthAttachmentSummary, HealthExportDocument } from './types';
@@ -61,8 +61,13 @@ export interface ConnectParams {
    * Fires once the token is in hand and the first FHIR request is about to go
    * out — the moment the download actually starts, which is not the moment the
    * user clicked connect: signing in happens in a popup at the user's own pace.
+   *
+   * Carries the provider's display name because the guest can no longer look one
+   * up: it holds only the curated organizations, not the full directory. The host
+   * has already resolved the profile by this point, so it sends what it knows —
+   * the same thing `AuthStatus.provider` does for a stored record.
    */
-  onImportStart?: () => void;
+  onImportStart?: (providerName: string) => void;
   onProgress?: (progress: ImportProgressReport) => void;
 }
 
@@ -75,11 +80,11 @@ export async function connectAndImport({
   onImportStart,
   onProgress,
 }: ConnectParams): Promise<HealthExportDocument> {
-  const provider = getProvider(providerId);
+  const provider = await resolveProvider(providerId);
   if (!provider) throw new Error(`Unknown provider: ${providerId}`);
 
   const auth = await authorize(providerId, clientId, scope);
-  onImportStart?.();
+  onImportStart?.(provider.name);
 
   const attachments: HealthAttachmentSummary[] = [];
   /** Soft failures from note capture. Folded into `errors.Binary` at the end. */
