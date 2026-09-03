@@ -151,3 +151,100 @@ test('keeps talking to the preview across a switch that re-creates the frame', a
     headers: { authorization: `Bearer ${authorToken}` },
   });
 });
+
+test('closes the version menu on Escape, an outside click, and a click into the preview', async ({ page }) => {
+  const ready = page.locator('.preview-stage[data-phase="ready"]');
+  await page.goto('/');
+  await expect(ready).toBeVisible({ timeout: 90_000 });
+
+  const trigger = page.getByRole('button', { name: /^Version/ });
+  const menu = page.getByRole('menu');
+  const starter = page.getByRole('menuitem', { name: /Default app/ });
+
+  // Escape, from the menu itself.
+  await trigger.click();
+  await expect(menu).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  // And the caret lands back on the trigger rather than on <body>.
+  await expect(trigger).toBeFocused();
+
+  // Escape out of the publish form discards the panel without publishing.
+  await trigger.click();
+  await page.getByRole('button', { name: '+ Publish current…' }).click();
+  await page.getByLabel('Name').fill('Never published');
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await trigger.click();
+  await expect(starter).toBeVisible();
+  await expect(page.getByLabel('Name')).toHaveCount(0);
+  await expect(trigger).toContainText('Default app');
+
+  // An ordinary outside click, on the host chrome.
+  await page.locator('header.topbar h1').click();
+  await expect(menu).toHaveCount(0);
+
+  // And the one that actually happens: a click into the preview. It is a
+  // cross-origin iframe, so it fires nothing in this document — only the window
+  // blur that `VersionSwitcher` watches for.
+  await trigger.click();
+  await expect(menu).toBeVisible();
+  await page.frameLocator('iframe[title="Editable WebMCP application preview"]')
+    .getByRole('heading', { name: 'Agree to the terms of service' })
+    .click();
+  await expect(menu).toHaveCount(0);
+  await expect(trigger).toContainText('Default app');
+});
+
+test('reverts an agent\'s edits to the loaded version without leaving it', async ({ page }) => {
+  const ready = page.locator('.preview-stage[data-phase="ready"]');
+  await installModelContext(page);
+  await page.goto('/');
+  await expect(ready).toBeVisible({ timeout: 90_000 });
+
+  const trigger = page.getByRole('button', { name: /^Version/ });
+  const revert = page.getByRole('button', { name: 'Revert unpublished changes' });
+
+  // Nothing to undo yet, so the control is inert rather than a second way to
+  // load the app that is already loaded.
+  await trigger.click();
+  await expect(revert).toBeDisabled();
+  await page.keyboard.press('Escape');
+
+  // An agent edits the default app. This is the case the version list cannot
+  // express: "Default app" is already the checked row.
+  const files = await page.evaluate(async () => {
+    const tools = (window as unknown as { __tools: { name: string; execute: (i: unknown) => Promise<unknown> }[] }).__tools;
+    const list = tools.find((tool) => tool.name === 'list_project_files');
+    return list!.execute({}) as Promise<{ revision: number }>;
+  });
+  await page.evaluate(async (revision) => {
+    const tools = (window as unknown as { __tools: { name: string; execute: (i: unknown) => Promise<unknown> }[] }).__tools;
+    const apply = tools.find((tool) => tool.name === 'apply_project_changes');
+    await apply!.execute({
+      baseRevision: revision,
+      changes: [{
+        path: 'src/components/HomeView.tsx',
+        operation: 'write',
+        content: "export default function HomeView() {\n  return <p className=\"lede\">Edited by an agent.</p>;\n}\n",
+      }],
+    });
+  }, files.revision);
+
+  const preview = page.frameLocator('iframe[title="Editable WebMCP application preview"]');
+  await expect(preview.getByText('Edited by an agent.')).toBeVisible({ timeout: 60_000 });
+  await expect(trigger).toContainText('edited');
+
+  await trigger.click();
+  await expect(revert).toBeEnabled();
+  await revert.click();
+  await page.getByRole('button', { name: 'Revert changes' }).click();
+
+  // Back to the built-in app, still on the same version, and the dirty badge
+  // is gone because the working copy matches what it was checked out from.
+  await expect(preview.getByText('Edited by an agent.')).toHaveCount(0, { timeout: 60_000 });
+  await expect(preview.getByRole('heading', { level: 1 }))
+    .toContainText('See what happened in your care', { timeout: 30_000 });
+  await expect(trigger).toContainText('Default app');
+  await expect(trigger).not.toContainText('edited', { timeout: 30_000 });
+});
