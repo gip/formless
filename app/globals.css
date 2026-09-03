@@ -83,7 +83,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 
 /* Passphrase prompt -------------------------------------------------------- */
 
-.passphrase-dialog { width: min(430px, calc(100vw - 40px)); padding: 0; border: 1px solid var(--line); border-radius: 17px; background: #fff; color: var(--ink); box-shadow: 0 24px 64px rgba(24,36,52,.25); }
+.passphrase-dialog { position: fixed; inset: 0; width: min(430px, calc(100vw - 40px)); max-height: calc(100vh - 40px); margin: auto; padding: 0; border: 1px solid var(--line); border-radius: 17px; background: #fff; color: var(--ink); box-shadow: 0 24px 64px rgba(24,36,52,.25); overflow: auto; }
 .passphrase-dialog::backdrop { background: rgba(24,36,52,.42); }
 .passphrase-dialog form { display: flex; flex-direction: column; padding: 22px; }
 .passphrase-dialog h2 { margin: 0 0 8px; font-size: 17px; letter-spacing: -.02em; }
@@ -96,6 +96,10 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .passphrase-actions button { padding: 9px 15px; border: 1px solid var(--line); border-radius: 11px; background: #fff; color: inherit; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
 .passphrase-actions .passphrase-primary { border-color: var(--ink); background: var(--ink); color: var(--lime); }
 .passphrase-actions button:hover { border-color: #c3ccd8; }
+.passphrase-plain { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.passphrase-plain-button { padding: 0; border: 0; background: none; color: var(--blue); font: inherit; font-size: 12px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.passphrase-plain-button:hover { color: var(--ink); }
+.passphrase-plain p { margin: 7px 0 0; color: #9b615c; font-size: 11.5px; line-height: 1.5; }
 
 /* OAuth popup pages ---------------------------------------------------------- */
 
