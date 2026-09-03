@@ -97,6 +97,23 @@ describe('computeGrant', () => {
     // default open just because the host has no record of who published it.
     expect(computeGrant('unknown', [])).toEqual({ scope: 'unknown', privileged: false });
   });
+
+  it('trusts a version the person chose to run anyway', () => {
+    const versions = [version({ id: 'v1', mine: false, contentHash: 'hash-1' })];
+    expect(computeGrant('v1', versions, { v1: 'hash-1' }))
+      .toEqual({ scope: 'v1', privileged: true });
+  });
+
+  it('does not carry trust to a different overlay under the same id', () => {
+    const versions = [version({ id: 'v1', mine: false, contentHash: 'hash-2' })];
+    expect(computeGrant('v1', versions, { v1: 'hash-1' }))
+      .toEqual({ scope: 'v1', privileged: false });
+  });
+
+  it('does not let a trust record vouch for a version the host never listed', () => {
+    // Trust is checked by content hash, and an unlisted id has none to check.
+    expect(computeGrant('v1', [], { v1: 'hash-1' })).toEqual({ scope: 'v1', privileged: false });
+  });
 });
 
 describe('privilege gating', () => {

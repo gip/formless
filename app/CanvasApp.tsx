@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import VersionSwitcher from './VersionSwitcher';
 import PassphrasePrompt from './PassphrasePrompt';
+import VersionTrustPrompt from './VersionTrustPrompt';
 import { isTrustedPreviewMessage } from '@/lib/bridge';
 import type { AppVersion, FileMap, RouteDescriptor, UiElementDescriptor } from '@/lib/canvas-types';
 import { computeGrant, respondToCapability, type CapabilityDeps } from '@/lib/host-capabilities';
@@ -13,6 +14,13 @@ import { createImportRelay } from '@/lib/health/import-relay';
 import { getProjectController, starterOverlay, type ControllerState } from '@/lib/project-controller';
 import { overlayHash } from '@/lib/project-policy';
 import { starterPackageHash } from '@/lib/runtime-snapshot';
+import {
+  getServerTrustedVersions,
+  getTrustedVersions,
+  isVersionTrusted,
+  subscribeTrustedVersions,
+  trustVersion,
+} from '@/lib/version-trust';
 import {
   fetchVersion,
   listVersions,
@@ -66,6 +74,17 @@ export default function CanvasApp() {
   const [draftDirty, setDraftDirty] = useState(false);
   const [starterHash, setStarterHash] = useState<string | null>(null);
   const deepLinkRef = useRef(false);
+  const trustedVersions = useSyncExternalStore(
+    subscribeTrustedVersions,
+    getTrustedVersions,
+    getServerTrustedVersions,
+  );
+  /**
+   * The version whose trust prompt has been dismissed. Held by id, so switching
+   * to a different unreviewed version asks again rather than inheriting a
+   * decision made about someone else's code.
+   */
+  const [trustDismissed, setTrustDismissed] = useState<string | null>(null);
 
   /**
    * A published version is someone else's code. It has always run cross-origin,
@@ -169,12 +188,52 @@ export default function CanvasApp() {
    * app's privileges — briefly handing a stranger's version the access a
    * version you published had.
    */
-  const grant = useMemo(() => computeGrant(runtime.versionId, versions), [runtime.versionId, versions]);
+  const grant = useMemo(
+    () => computeGrant(runtime.versionId, versions, trustedVersions),
+    [runtime.versionId, versions, trustedVersions],
+  );
+
+  /**
+   * The loaded version when it is someone else's and has not been trusted.
+   *
+   * Derived from the loaded version rather than raised at the click, so the
+   * warning is the same whether the version arrived from the picker, a
+   * `?version=` deep link, or the agent's `switch_version` tool. It stays `null`
+   * until `versions` has actually listed the id: before that the host does not
+   * know whose code this is, and "someone else published this" would be a claim
+   * it cannot make.
+   */
+  const untrustedVersion = useMemo(() => {
+    const version = versions.find((entry) => entry.id === runtime.versionId);
+    if (!version || version.mine || isVersionTrusted(version, trustedVersions)) return null;
+    return version;
+  }, [runtime.versionId, versions, trustedVersions]);
+
+  const trustPrompt = untrustedVersion?.id === trustDismissed ? null : untrustedVersion;
 
   const capabilities = useMemo<CapabilityDeps>(
     () => ({ state: guestStatePort, grant: () => grant, health }),
     [grant, health],
   );
+
+  /**
+   * Trusting a version widens the grant under a guest that has already asked.
+   * Its `auth.status` was refused when it mounted, and nothing would ask again —
+   * so without this the connect button stays dead until a reload, which is the
+   * dead button the trust prompt exists to end.
+   *
+   * `record.changed` rather than a new event name because it is the one every
+   * already-published version is listening on: `HealthHostHooks.emit` defines it
+   * as "auth or record state moved underneath you", and an access change is
+   * exactly that. A version published before this existed gets a live button
+   * without being republished.
+   */
+  const privilegedRef = useRef(grant.privileged);
+  useEffect(() => {
+    if (privilegedRef.current === grant.privileged) return;
+    privilegedRef.current = grant.privileged;
+    emitHostEvent('record.changed');
+  }, [grant.privileged]);
 
   const previewIdentity = `${runtime.versionId ?? 'starter'}|${runtime.previewUrl ?? ''}`;
   const routes = useMemo(
@@ -257,10 +316,24 @@ export default function CanvasApp() {
     return () => window.removeEventListener('message', onMessage);
   }, [previewOrigin, capabilities, previewIdentity, nativeWebMcp]);
 
-  // Tools are already registered (see lib/webmcp-runtime). All this does is
-  // hand the runtime the live preview window once it exists.
-  useEffect(() => {
-    const frameWindow = iframeRef.current?.contentWindow;
+  /**
+   * Tools are already registered (see lib/webmcp-runtime). All this does is
+   * hand the runtime the live preview window once it exists.
+   *
+   * A ref callback rather than an effect keyed on the origin, because the two
+   * do not change together. The iframe is keyed on `allow` as well as the URL,
+   * so switching to a version published by someone else replaces the element
+   * while the preview URL — and therefore the origin — stays exactly the same.
+   * An effect keyed on the origin does not re-run for that, and the runtime
+   * goes on posting at the window that was just destroyed: `mcp.status` never
+   * reaches the new guest, so its composer times out and announces that no
+   * agent is connected, and every `host-request` hangs until its own timeout.
+   * Only a full page reload cleared it. The element is the thing that changes,
+   * so the element is what the target has to be attached to.
+   */
+  const attachPreview = useCallback((node: HTMLIFrameElement | null) => {
+    iframeRef.current = node;
+    const frameWindow = node?.contentWindow ?? null;
     setPreviewTarget(frameWindow && previewOrigin ? { window: frameWindow, origin: previewOrigin } : null);
   }, [previewOrigin]);
 
@@ -426,6 +499,18 @@ export default function CanvasApp() {
           onUnpublish={(id) => { void unpublishCurrent(id); }}
           onReset={() => { void resetToStarter().catch(() => undefined); }}
         />
+        {untrustedVersion ? (
+          // The way back after dismissing the prompt. Without it, declining once
+          // would leave the connect button dead for good with nothing on screen
+          // saying why — the exact bug the prompt exists to end.
+          <button
+            type="button"
+            className="trust-badge"
+            onClick={() => setTrustDismissed(null)}
+          >
+            Sandboxed
+          </button>
+        ) : null}
         {importing ? (
           <div className="import-pill" role="status" aria-live="polite">
             {importProgress
@@ -434,6 +519,15 @@ export default function CanvasApp() {
           </div>
         ) : null}
       </header>
+
+      {trustPrompt ? (
+        <VersionTrustPrompt
+          key={trustPrompt.id}
+          version={trustPrompt}
+          onKeepSandboxed={() => setTrustDismissed(trustPrompt.id)}
+          onTrust={() => trustVersion(trustPrompt)}
+        />
+      ) : null}
 
       {passphraseRequest ? (
         <PassphrasePrompt
@@ -448,7 +542,7 @@ export default function CanvasApp() {
           <div className="preview-viewport">
             {runtime.previewUrl ? (
               <iframe
-                ref={iframeRef}
+                ref={attachPreview}
                 // `allow` is read at load, so it has to be part of the key.
                 key={`${runtime.previewUrl}|${previewAllow}`}
                 src={`${runtime.previewUrl}/?canvasHost=${encodeURIComponent(window.location.origin)}`}
