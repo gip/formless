@@ -71,15 +71,14 @@ export default function HomeView() {
 
           <p className="consent-note">
             By continuing, you agree to the{' '}
-            <AgentLink
+            <RouteLink
+              to="/terms"
               agentId="home-terms-link"
               agentLabel="Terms"
-              agentDescription="Opens the terms of service. Not part of this build."
-              href="#/"
-              onClick={(event: React.MouseEvent) => event.preventDefault()}
+              agentDescription="Opens the terms of service."
             >
               Terms
-            </AgentLink>{' '}
+            </RouteLink>{' '}
             and acknowledge the{' '}
             <AgentLink
               agentId="home-privacy-link"

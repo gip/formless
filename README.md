@@ -2,7 +2,7 @@
 
 Formless Labs is a preview-first demo of a browser agent inspecting, navigating, and updating a live React project. The outer host boots a WebContainer, mounts the protected guest project, and exposes nineteen WebMCP tools. The guest runs in a cross-origin iframe and reports its instrumented UI elements to the host through a versioned bridge.
 
-The guest is **Formless Health** — a patient-authorized health record app with two routes, a landing page and a record explorer. It is a real interface rather than a synthetic demo, which is the point: a dense clinical record with 1,400+ resources across 17 types is exactly the kind of thing that is hard to navigate by hand and worth driving by voice.
+The guest is **Formless Health** — a patient-authorized health record app with three routes: a landing page, a record explorer, and the terms of service. Nothing is reachable until those terms are accepted, because two of their points are load-bearing here: no health data reaches the server, and an attached agent forwards parts of the record to OpenAI. It is a real interface rather than a synthetic demo, which is the point: a dense clinical record with 1,400+ resources across 17 types is exactly the kind of thing that is hard to navigate by hand and worth driving by voice.
 
 ## Run locally
 

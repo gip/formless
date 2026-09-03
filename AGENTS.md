@@ -143,6 +143,16 @@ is the guest half. Both are protected files.
 - `navigate_to_route` is built from the declared routes only, so the agent can
   never navigate the preview somewhere it cannot render. For a voice user this is
   the point: "take me to my record" beats hunting for a link.
+- **The terms gate rides `state.*`.** `guest/src/components/TermsGate.tsx` blocks
+  every route behind a modal until `terms-acceptance` in host state matches
+  `TERMS_VERSION` in `guest/src/components/terms.ts`. Bump that constant and
+  everyone is asked again; because state scopes are per-version, a version
+  someone else published asks in its own right rather than inheriting the
+  starter's answer. The gate reads state with a 5s budget rather than the
+  bridge's 30s default — a page that sits ungated for half a minute outside the
+  canvas defeats the point — and treats silence as "not accepted". E2E clicks
+  through it via `acceptTerms()` in `e2e/terms.ts`; a new test that touches the
+  preview needs that call or its first click times out under the modal.
 
 ### Health subsystem
 

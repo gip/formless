@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 import { installModelContext } from './model-context';
+import { acceptTerms } from './terms';
 
 const TOKEN = 'e2e0000000000000000000000000cafe';
 const OVERLAY = { 'src/App.tsx': 'export default function App() { return null; }' };
@@ -139,7 +140,10 @@ test('keeps talking to the preview across a switch that re-creates the frame', a
   await expect(preview.getByText('No agent is connected.')).toHaveCount(0);
 
   // The same channel carries every `host-request` response. Without it the
-  // explorer sits on its spinner until the guest's own 30s timeout.
+  // explorer sits on its spinner until the guest's own 30s timeout — and the
+  // terms gate, which is answered here for the starter's own scope, is one of
+  // the things riding that channel.
+  await acceptTerms(preview);
   await preview.getByRole('link', { name: 'Explore your record' }).click();
   await expect(preview.getByText('Opening your record…')).toHaveCount(0, { timeout: 15_000 });
 

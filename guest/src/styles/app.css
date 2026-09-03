@@ -286,6 +286,56 @@ h1 { max-width: 760px; margin: 0; font-family: var(--serif); font-size: var(--te
   footer { align-items: flex-start; flex-direction: column; gap: 8px; }
 }
 
+/* Terms of service --------------------------------------------------------- */
+/* The page at `/terms` and the acceptance dialog share `TermsDocument`, so
+   `.terms-body` has to read well in a 760px column and inside an 820px dialog. */
+
+.terms-shell { max-width: 820px; padding-top: 58px; padding-bottom: 120px; }
+.terms-heading { padding-bottom: 30px; border-bottom: 1px solid var(--line); }
+.terms-heading h1 { font-size: var(--text-display-sm); }
+.terms-meta { margin: 18px 0 0; color: var(--muted); font-family: var(--mono); font-size: var(--text-xs); letter-spacing: .02em; }
+.terms-body { padding-top: 8px; }
+.terms-section { padding: 30px 0; border-bottom: 1px solid var(--line); }
+.terms-section:last-child { border-bottom: 0; }
+.terms-section h2 { margin: 0 0 14px; font-family: var(--serif); font-size: var(--text-xl); font-weight: 500; letter-spacing: -.01em; }
+.terms-section p { margin: 0 0 14px; max-width: 68ch; color: var(--ink-soft); font-size: var(--text-md); line-height: 1.7; }
+.terms-section p:last-child { margin-bottom: 0; }
+.terms-footer-actions { padding-top: 34px; }
+
+/* The gate. Modal by construction: the two things being consented to — an agent
+   forwarding health information to OpenAI, and the bar on professional use —
+   are not something to notice later in a banner. */
+.terms-dialog { width: min(820px, calc(100vw - 40px)); max-height: min(860px, calc(100vh - 40px)); padding: 0; overflow: hidden; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--card); color: var(--ink); box-shadow: 0 24px 64px rgba(16, 24, 19, .25); }
+.terms-dialog::backdrop { background: rgba(16, 24, 19, .62); backdrop-filter: blur(3px); }
+.terms-dialog-header { flex: 0 0 auto; padding: 26px 30px 20px; border-bottom: 1px solid var(--line); }
+.terms-dialog-header h2 { margin: 0; font-family: var(--serif); font-size: var(--text-2xl); font-weight: 500; line-height: 1.15; }
+.terms-dialog-meta { margin: 10px 0 0; color: var(--muted); font-family: var(--mono); font-size: var(--text-xs); letter-spacing: .02em; }
+.terms-dialog-scroll { flex: 1 1 auto; min-height: 0; padding: 24px 30px 28px; overflow-y: auto; }
+.terms-points { margin: 0; padding: 0; list-style: none; display: grid; gap: 1px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--line); }
+.terms-points li { padding: 17px 19px; background: var(--card); }
+.terms-points strong { display: block; margin-bottom: 6px; font-size: var(--text-sm); font-weight: 700; letter-spacing: -.01em; }
+.terms-points span { display: block; color: var(--ink-soft); font-size: 14px; line-height: 1.6; }
+.terms-dialog-toggle { margin-top: 6px; text-decoration: underline; text-underline-offset: 3px; }
+.terms-dialog-scroll .terms-body { padding-top: 0; }
+.terms-dialog-scroll .terms-section { padding: 24px 0; }
+.terms-dialog-scroll .terms-section h2 { font-size: var(--text-lg); }
+.terms-dialog-scroll .terms-section p { font-size: 14px; line-height: 1.65; }
+.terms-dialog-footer { flex: 0 0 auto; padding: 16px 30px; display: flex; justify-content: flex-end; gap: 12px; border-top: 1px solid var(--line); background: var(--paper); }
+.terms-dialog-footer .button { min-height: 44px; }
+.terms-dialog-declined { padding: 34px 30px; }
+.terms-dialog-declined h2 { margin: 0; font-family: var(--serif); font-size: var(--text-xl); font-weight: 500; }
+.terms-dialog-declined p { max-width: 60ch; margin: 14px 0 24px; color: var(--ink-soft); font-size: var(--text-md); line-height: 1.65; }
+
+@media (max-width: 560px) {
+  .terms-shell { padding-top: 40px; }
+  .terms-dialog { width: calc(100vw - 20px); max-height: calc(100vh - 20px); }
+  .terms-dialog-header { padding: 20px; }
+  .terms-dialog-header h2 { font-size: 21px; }
+  .terms-dialog-scroll { padding: 18px 20px 22px; }
+  .terms-dialog-footer { padding: 12px 20px; flex-direction: column-reverse; }
+  .terms-dialog-declined { padding: 24px 20px; }
+}
+
 /* Agent instrumentation ---------------------------------------------------- */
 /* Preserved from the previous guest stylesheet. `src/agent/bridge.tsx` sets the
    overlay's geometry inline with !important; `.sr-only` exists only here. */

@@ -24,6 +24,13 @@ export const ROUTES: RouteDescriptor[] = [
     title: 'Explore your record',
     description: 'Browse the imported health record by resource type, rendered or as raw FHIR JSON.',
   },
+  {
+    path: '/terms',
+    title: 'Terms of service',
+    description:
+      'The terms every visitor accepts before using the site: personal use only, no health data on '
+    + 'the server, what an attached AI agent sends to OpenAI, and the bar on professional use.',
+  },
 ];
 
 const KNOWN = new Set(ROUTES.map((route) => route.path));
