@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'WebAlly',
+  title: 'Formless Health',
   description: 'A live, agent-editable interface running in your browser.',
 };
 

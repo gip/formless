@@ -164,7 +164,7 @@ export default function ExploreView() {
           <p className="eyebrow">Encrypted local record</p>
           <h1>Unlock your health record.</h1>
           <p>
-            The encryption key exists only in memory. WebAlly will ask for your storage passphrase
+            The encryption key exists only in memory. Formless Health will ask for your storage passphrase
             outside this page, so no code running here can read it.
           </p>
           <AgentButton

@@ -1,13 +1,13 @@
 /*
- * Web Ally starter, protocol web-ally/1.0.
+ * Formless Apps starter, protocol formless-apps/1.0.
  *
- * Copy this file into the website and implement WebAllyAdapter with the
+ * Copy this file into the website and implement FormlessAppsAdapter with the
  * application's semantic state and existing action services.
  */
 
-export const WEB_ALLY_VERSION = "web-ally/1.0" as const;
+export const FORMLESS_APPS_VERSION = "formless-apps/1.0" as const;
 
-export type WebAllyStatus =
+export type FormlessAppsStatus =
   | "ok"
   | "confirmation_required"
   | "invalid_session"
@@ -18,9 +18,9 @@ export type WebAllyStatus =
   | "cancelled"
   | "error";
 
-export interface WebAllyResult<T = unknown> {
-  protocolVersion: typeof WEB_ALLY_VERSION;
-  status: WebAllyStatus;
+export interface FormlessAppsResult<T = unknown> {
+  protocolVersion: typeof FORMLESS_APPS_VERSION;
+  status: FormlessAppsStatus;
   sessionId?: string;
   pageRevision?: string;
   spokenSummary: string;
@@ -32,13 +32,13 @@ export interface WebAllyResult<T = unknown> {
   };
 }
 
-export interface WebAllySite {
+export interface FormlessAppsSite {
   name: string;
   title: string;
   language: string;
 }
 
-export interface WebAllyInteraction {
+export interface FormlessAppsInteraction {
   input?: Array<"voice" | "text" | "keyboard" | "switch">;
   output?: Array<"speech" | "text" | "braille">;
   locale?: string;
@@ -47,15 +47,15 @@ export interface WebAllyInteraction {
 }
 
 export interface AdapterOutcome<T = unknown> {
-  status?: Exclude<WebAllyStatus, "invalid_session" | "stale_revision">;
+  status?: Exclude<FormlessAppsStatus, "invalid_session" | "stale_revision">;
   spokenSummary: string;
   displaySummary?: string;
   data?: T;
-  recover?: WebAllyResult["recover"];
+  recover?: FormlessAppsResult["recover"];
 }
 
-export interface WebAllyAdapter {
-  getSite(): WebAllySite;
+export interface FormlessAppsAdapter {
+  getSite(): FormlessAppsSite;
   getRevision(): string;
   getPrincipalKey(): string | null;
 
@@ -120,7 +120,7 @@ export interface WebMcpTool {
   execute(
     input: JsonObject,
     options: ToolExecutionOptions,
-  ): Promise<WebAllyResult>;
+  ): Promise<FormlessAppsResult>;
 }
 
 interface ModelContextLike {
@@ -134,11 +134,11 @@ interface Session {
   id: string;
   origin: string;
   principalKey: string | null;
-  interaction?: WebAllyInteraction;
+  interaction?: FormlessAppsInteraction;
   lastUsedAt: number;
 }
 
-export interface InstallWebAllyOptions {
+export interface InstallFormlessAppsOptions {
   domainTools?: string[];
   exposedTo?: string[];
   sessionIdleMs?: number;
@@ -146,7 +146,7 @@ export interface InstallWebAllyOptions {
   confirmationTokenLifetimeSeconds?: number;
 }
 
-export interface WebAllyInstallation {
+export interface FormlessAppsInstallation {
   supported: boolean;
   tools: readonly WebMcpTool[];
   dispose(): void;
@@ -154,7 +154,7 @@ export interface WebAllyInstallation {
 
 class ProtocolFault extends Error {
   constructor(
-    readonly status: WebAllyStatus,
+    readonly status: FormlessAppsStatus,
     message: string,
     readonly nextTool?: string,
   ) {
@@ -327,12 +327,12 @@ const schemas = {
   ),
 } as const;
 
-export async function installWebAlly(
-  adapter: WebAllyAdapter,
-  options: InstallWebAllyOptions = {},
-): Promise<WebAllyInstallation> {
+export async function installFormlessApps(
+  adapter: FormlessAppsAdapter,
+  options: InstallFormlessAppsOptions = {},
+): Promise<FormlessAppsInstallation> {
   if (typeof document === "undefined") {
-    throw new Error("Web Ally must be installed in an active browser document.");
+    throw new Error("Formless Apps must be installed in an active browser document.");
   }
 
   const lifetime = new AbortController();
@@ -342,16 +342,16 @@ export async function installWebAlly(
   const maximumSessions = Math.max(1, options.maximumSessions ?? 8);
 
   const result = <T>(
-    status: WebAllyStatus,
+    status: FormlessAppsStatus,
     spokenSummary: string,
     session?: Session,
     details: {
       displaySummary?: string;
       data?: T;
-      recover?: WebAllyResult["recover"];
+      recover?: FormlessAppsResult["recover"];
     } = {},
-  ): WebAllyResult<T> => ({
-    protocolVersion: WEB_ALLY_VERSION,
+  ): FormlessAppsResult<T> => ({
+    protocolVersion: FORMLESS_APPS_VERSION,
     status,
     ...(session
       ? {
@@ -377,8 +377,8 @@ export async function installWebAlly(
       if (session) sessions.delete(id);
       throw new ProtocolFault(
         "invalid_session",
-        "This Web Ally session is no longer valid.",
-        "web_ally.handshake",
+        "This Formless Apps session is no longer valid.",
+        "formless_apps.handshake",
       );
     }
 
@@ -392,7 +392,7 @@ export async function installWebAlly(
       throw new ProtocolFault(
         "stale_revision",
         "The page changed before that action could run.",
-        "web_ally.get_page_state",
+        "formless_apps.get_page_state",
       );
     }
   };
@@ -401,7 +401,7 @@ export async function installWebAlly(
     implementation: (
       input: JsonObject,
       signal: AbortSignal,
-    ) => Promise<WebAllyResult>,
+    ) => Promise<FormlessAppsResult>,
   ): WebMcpTool["execute"] =>
     async (input, executionOptions) => {
       try {
@@ -429,7 +429,7 @@ export async function installWebAlly(
           session,
           {
             recover: {
-              nextTool: "web_ally.get_page_state",
+              nextTool: "formless_apps.get_page_state",
               reason:
                 "Inspect the current state before deciding whether to try another action.",
             },
@@ -443,7 +443,7 @@ export async function installWebAlly(
     signal: AbortSignal,
     operation: () => Promise<unknown>,
     spokenSummary: string,
-  ): Promise<WebAllyResult> => {
+  ): Promise<FormlessAppsResult> => {
     const session = requireSession(input);
     return operation().then((data) => {
       signal.throwIfAborted();
@@ -455,7 +455,7 @@ export async function installWebAlly(
     input: JsonObject,
     signal: AbortSignal,
     operation: () => Promise<AdapterOutcome>,
-  ): Promise<WebAllyResult> => {
+  ): Promise<FormlessAppsResult> => {
     const session = requireSession(input);
     requireCurrentRevision(input);
     const outcome = await operation();
@@ -474,10 +474,10 @@ export async function installWebAlly(
 
   const tools: WebMcpTool[] = [
     {
-      name: "web_ally.handshake",
-      title: "Connect Web Ally",
+      name: "formless_apps.handshake",
+      title: "Connect Formless Apps",
       description:
-        "Negotiates Web Ally and returns a bounded semantic snapshot of the current page. Call this before other web_ally tools.",
+        "Negotiates Formless Apps and returns a bounded semantic snapshot of the current page. Call this before other formless_apps tools.",
       inputSchema: schemas.handshake,
       annotations: {
         readOnlyHint: true,
@@ -490,15 +490,15 @@ export async function installWebAlly(
           8,
           64,
         );
-        if (!versions.includes(WEB_ALLY_VERSION)) {
+        if (!versions.includes(FORMLESS_APPS_VERSION)) {
           return result(
             "error",
-            "This website and assistant do not share a Web Ally version.",
+            "This website and assistant do not share a Formless Apps version.",
             undefined,
             {
               data: {
                 code: "unsupported_version",
-                supportedVersions: [WEB_ALLY_VERSION],
+                supportedVersions: [FORMLESS_APPS_VERSION],
               },
             },
           );
@@ -528,7 +528,7 @@ export async function installWebAlly(
         const site = adapter.getSite();
         return result(
           "ok",
-          "Web Ally is ready for voice or text navigation.",
+          "Formless Apps is ready for voice or text navigation.",
           session,
           {
             displaySummary: site.title,
@@ -554,7 +554,7 @@ export async function installWebAlly(
       }),
     },
     {
-      name: "web_ally.get_page_state",
+      name: "formless_apps.get_page_state",
       title: "Describe page",
       description:
         "Returns a bounded semantic snapshot of the current page or one requested section. It does not change the page.",
@@ -585,7 +585,7 @@ export async function installWebAlly(
       ),
     },
     {
-      name: "web_ally.find",
+      name: "formless_apps.find",
       title: "Find on page",
       description:
         "Finds current content and controls by meaning, accessible label, role, or text. It does not change the page.",
@@ -617,7 +617,7 @@ export async function installWebAlly(
       ),
     },
     {
-      name: "web_ally.navigate",
+      name: "formless_apps.navigate",
       title: "Navigate page",
       description:
         "Moves focus, selects a current landmark or internal route, or moves through page history. It does not accept arbitrary URLs.",
@@ -653,7 +653,7 @@ export async function installWebAlly(
       ),
     },
     {
-      name: "web_ally.activate",
+      name: "formless_apps.activate",
       title: "Activate control",
       description:
         "Activates one current UI control by opaque reference. Consequential effects return a preview instead of committing.",
@@ -672,7 +672,7 @@ export async function installWebAlly(
       ),
     },
     {
-      name: "web_ally.set_value",
+      name: "formless_apps.set_value",
       title: "Set field value",
       description:
         "Sets one current visible form control and returns its normalized value and validation state. It does not submit the form.",
@@ -694,7 +694,7 @@ export async function installWebAlly(
       ),
     },
     {
-      name: "web_ally.get_changes",
+      name: "formless_apps.get_changes",
       title: "Get page changes",
       description:
         "Returns bounded status, validation, route, focus, and live-region changes after an optional cursor. It does not change the page.",
@@ -724,7 +724,7 @@ export async function installWebAlly(
       ),
     },
     {
-      name: "web_ally.confirm_action",
+      name: "formless_apps.confirm_action",
       title: "Confirm action",
       description:
         "Commits one previously previewed consequential action using its fresh, single-use confirmation token.",
@@ -947,7 +947,7 @@ function readScalar(
   return value as string | number | boolean | null;
 }
 
-function readInteraction(value: unknown): WebAllyInteraction | undefined {
+function readInteraction(value: unknown): FormlessAppsInteraction | undefined {
   if (value === undefined) return undefined;
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new ProtocolFault(

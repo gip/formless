@@ -1,16 +1,16 @@
 # Website Implementation Guide
 
-Use this guide after reading [protocol.md](protocol.md). The framework-neutral starter is [../assets/web-ally-starter.ts](../assets/web-ally-starter.ts).
+Use this guide after reading [protocol.md](protocol.md). The framework-neutral starter is [../assets/formless-apps-starter.ts](../assets/formless-apps-starter.ts).
 
 ## 1. Preserve the accessible UI
 
-Start with native elements and semantic HTML. Give controls accessible names, group and label form fields, use headings and landmarks, preserve keyboard order, associate validation errors, manage focus after route and dialog changes, and announce asynchronous status through appropriate live regions. Web Ally should call the same handlers a keyboard or pointer user reaches.
+Start with native elements and semantic HTML. Give controls accessible names, group and label form fields, use headings and landmarks, preserve keyboard order, associate validation errors, manage focus after route and dialog changes, and announce asynchronous status through appropriate live regions. Formless Apps should call the same handlers a keyboard or pointer user reaches.
 
 Do not construct page state by scraping visual coordinates. Build it from the application's semantic view model or a protected registry tied to rendered accessible components. If using a registry, audit that every important operable control is represented and that duplicate IDs fail tests.
 
 ## 2. Add the session and revision layer
 
-Create one Web Ally service per active document:
+Create one Formless Apps service per active document:
 
 - Generate a cryptographically random session ID during handshake.
 - Record the chosen version, origin, document identity, authenticated principal fingerprint, preferences, last-used time, and current revision.
@@ -22,7 +22,7 @@ If the application already has revisions or ETags, reuse them. Otherwise maintai
 
 ## 3. Adapt the starter
 
-Copy `assets/web-ally-starter.ts` into the application and implement its `WebAllyAdapter`. The adapter intentionally owns application-specific behavior:
+Copy `assets/formless-apps-starter.ts` into the application and implement its `FormlessAppsAdapter`. The adapter intentionally owns application-specific behavior:
 
 - `getPageState` returns a bounded semantic snapshot.
 - `find` searches the semantic registry.

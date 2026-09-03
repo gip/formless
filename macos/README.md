@@ -47,7 +47,7 @@ or an invocation fails. Other flags: `--eval <js>` evaluates an expression in th
 `--console` includes captured console output, `--reloads N --ready-timeout S` measures
 time-to-ready across repeated loads, and `--out <file>` is required whenever the app is started
 with `open` (a launched app has no usable stdout). Against this repo's
-dev server it reports the 9 WebAlly tools, and the WebContainer preview does boot in WebKit —
+dev server it reports the 9 Formless Health tools, and the WebContainer preview does boot in WebKit —
 in about 1.5–4s per load, once each load gets its own process.
 
 ## Why every load starts a new process

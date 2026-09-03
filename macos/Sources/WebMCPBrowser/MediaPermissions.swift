@@ -58,7 +58,7 @@ extension BrowserModel: WKUIDelegate {
     // separate speech permission hook to implement. The app still needs
     // NSSpeechRecognitionUsageDescription, because the Speech framework checks TCC underneath.
 
-    /// Pages call `alert()` / `confirm()` for real reasons (WebAlly's reset flow, for one), and
+    /// Pages call `alert()` / `confirm()` for real reasons (Formless Health's reset flow, for one), and
     /// WKWebView silently drops them unless the UI delegate renders them.
     func webView(
         _ webView: WKWebView,

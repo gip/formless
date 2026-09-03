@@ -1,6 +1,6 @@
-# WebAlly
+# Formless Health
 
-WebAlly is a preview-first demo of a browser agent inspecting, navigating, and updating a live React project. The outer host boots a WebContainer, mounts the protected guest project, and exposes fourteen WebMCP tools. The guest runs in a cross-origin iframe and reports its instrumented UI elements to the host through a versioned bridge.
+Formless Health is a preview-first demo of a browser agent inspecting, navigating, and updating a live React project. The outer host boots a WebContainer, mounts the protected guest project, and exposes fourteen WebMCP tools. The guest runs in a cross-origin iframe and reports its instrumented UI elements to the host through a versioned bridge.
 
 The guest is **YesYou Health** — a patient-authorized health record app with two routes, a landing page and a record explorer. It is a real interface rather than a synthetic demo, which is the point: a dense clinical record with 1,400+ resources across 17 types is exactly the kind of thing that is hard to navigate by hand and worth driving by voice.
 
@@ -66,7 +66,7 @@ popups need a real user gesture.
 
 ## Versions
 
-Any interface you build can be published as a named **version** that everyone who opens WebAlly
+Any interface you build can be published as a named **version** that everyone who opens Formless Health
 sees in the header dropdown. Clicking one loads it into the live preview; `?version=<id>` opens
 it directly, which is how the macOS shell boots into a specific version:
 

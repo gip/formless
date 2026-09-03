@@ -7,7 +7,7 @@ import HomeView from './components/HomeView';
 import { ROUTES, RouteLink, useHostNavigation, useRoute } from './components/router';
 
 /**
- * YesYou Health, running as WebAlly's guest application.
+ * YesYou Health, running as Formless Health's guest application.
  *
  * Two routes, ported from the Next.js app: the landing page and the record
  * explorer. Everything an agent might rewrite lives under `src/components/`;
