@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import VersionSwitcher from './VersionSwitcher';
+import VoicePill from './VoicePill';
 import PassphrasePrompt from './PassphrasePrompt';
 import { isTrustedPreviewMessage } from '@/lib/bridge';
 import type { AppVersion, FileMap, RouteDescriptor, UiElementDescriptor } from '@/lib/canvas-types';
@@ -9,6 +10,7 @@ import { computeGrant, respondToCapability, type CapabilityDeps } from '@/lib/ho
 import { guestStatePort } from '@/lib/guest-state';
 import { createHealthPort, epicClientId, epicScope } from '@/lib/health/port';
 import { connectAndImport, type ImportProgressReport } from '@/lib/health/import';
+import { createImportRelay } from '@/lib/health/import-relay';
 import { getProjectController, starterOverlay, type ControllerState } from '@/lib/project-controller';
 import { overlayHash } from '@/lib/project-policy';
 import { starterPackageHash } from '@/lib/runtime-snapshot';
@@ -21,6 +23,8 @@ import {
   writeVersionParam,
 } from '@/lib/version-client';
 import {
+  getServerSpeechState,
+  getSpeechState,
   isNativeWebMcp,
   messageQueue,
   sendPreviewCommand,
@@ -28,7 +32,9 @@ import {
   setPreviewTarget,
   setRoutes,
   setVersionOperations,
+  speechPort,
   subscribeNativeWebMcp,
+  subscribeSpeech,
 } from '@/lib/webmcp-runtime';
 
 const initialControllerState: ControllerState = {
@@ -52,10 +58,24 @@ const phaseLabels: Record<ControllerState['phase'], string> = {
   error: 'Runtime unavailable',
 };
 
+/**
+ * Host -> guest push. The preview may not be mounted (a boot in flight, a
+ * version switch), and that is not an error: the guest re-reads what it needs
+ * when it mounts.
+ */
+function emitHostEvent(event: string, payload?: unknown): void {
+  try {
+    sendPreviewCommand('host-event', { event, payload });
+  } catch {
+    // No preview to tell.
+  }
+}
+
 export default function CanvasApp() {
   const controller = useMemo(() => getProjectController(), []);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const nativeWebMcp = useSyncExternalStore(subscribeNativeWebMcp, isNativeWebMcp, () => false);
+  const speech = useSyncExternalStore(subscribeSpeech, getSpeechState, getServerSpeechState);
   const [runtime, setRuntime] = useState(initialControllerState);
   const [versions, setVersions] = useState<AppVersion[]>([]);
   const [versionsError, setVersionsError] = useState<string | null>(null);
@@ -97,6 +117,22 @@ export default function CanvasApp() {
     settle: (value: string | null) => void;
   } | null>(null);
   const [importProgress, setImportProgress] = useState<ImportProgressReport>();
+  /**
+   * Held separately from `importProgress` because the two do not end together:
+   * the attachment pass runs after the last search completes, so a pill keyed on
+   * `completedSearches < totalSearches` would go quiet while the import was
+   * still downloading files.
+   */
+  const [importing, setImporting] = useState(false);
+
+  /**
+   * Created once, outside the health port, because it outlives any single
+   * connect and owns a pending timer.
+   */
+  const relay = useMemo(
+    () => createImportRelay({ emit: emitHostEvent, onReport: setImportProgress }),
+    [],
+  );
 
   /**
    * The health port owns the record and the derived key, so it is created once
@@ -106,26 +142,42 @@ export default function CanvasApp() {
   const health = useMemo(() => createHealthPort({
     requestPassphrase: (mode) =>
       new Promise<string | null>((settle) => setPassphraseRequest({ mode, settle })),
-    runConnect: async ({ providerId, includeAttachments, passphrase }) => {
+    runConnect: async ({ providerId, includeAttachments, passphrase, onImportStart }) => {
       const clientId = epicClientId(providerId);
       if (!clientId) throw new Error('NEXT_PUBLIC_EPIC_CLIENT_ID is not set.');
-      return connectAndImport({
-        providerId,
-        includeAttachments,
-        passphrase,
-        clientId,
-        ...(epicScope() ? { scope: epicScope()! } : {}),
-        onProgress: (progress) => setImportProgress(progress),
-      });
-    },
-    emit: (event, payload) => {
       try {
-        sendPreviewCommand('host-event', { event, payload });
-      } catch {
-        // The preview may not be mounted yet; the guest re-reads on mount anyway.
+        const record = await connectAndImport({
+          providerId,
+          includeAttachments,
+          passphrase,
+          clientId,
+          ...(epicScope() ? { scope: epicScope()! } : {}),
+          onImportStart: () => {
+            onImportStart();
+            setImporting(true);
+            relay.start(providerId);
+          },
+          onProgress: (progress) => relay.progress(progress),
+        });
+        // Ahead of the port's own `record.changed`, so the guest learns the
+        // import ended before it is told there is something new to read.
+        relay.finish({ ok: true });
+        setImporting(false);
+        return record;
+      } catch (error) {
+        // The guest may have moved to the record view on `import.started`, which
+        // is a page with nowhere to show a connect error. So the failure travels
+        // with the event that closes the progress panel.
+        relay.finish({
+          ok: false,
+          error: error instanceof Error ? error.message : 'The import failed.',
+        });
+        setImporting(false);
+        throw error;
       }
     },
-  }), []);
+    emit: emitHostEvent,
+  }), [relay]);
 
   /**
    * The grant is recomputed whenever the loaded version changes, and the message
@@ -349,12 +401,21 @@ export default function CanvasApp() {
           onPublish={(name, description) => { void publishCurrent(name, description).catch(() => undefined); }}
           onUnpublish={(id) => { void unpublishCurrent(id); }}
         />
-        {importProgress && importProgress.completedSearches < importProgress.totalSearches ? (
+        {importing ? (
           <div className="import-pill" role="status" aria-live="polite">
-            Importing {importProgress.completedSearches}/{importProgress.totalSearches} ·{' '}
-            {importProgress.resourceCount} records
+            {importProgress
+              ? `Importing ${importProgress.completedSearches}/${importProgress.totalSearches} · ${importProgress.resourceCount} records`
+              : 'Starting import…'}
           </div>
         ) : null}
+        <VoicePill
+          supported={speech.supported}
+          armed={speech.armed}
+          speaking={speech.speaking}
+          blocked={speech.blocked}
+          onArm={() => speechPort.arm()}
+          onStop={() => speechPort.stop()}
+        />
         <div className={`connection-pill ${nativeWebMcp ? 'online' : ''}`}>
           <span /> {nativeWebMcp ? 'Native WebMCP connected' : 'Local test bridge only'}
         </div>

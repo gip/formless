@@ -3,6 +3,7 @@
 import type { ProjectController } from './project-controller';
 import type { AppVersion, RouteDescriptor, ToolDefinition, UiElementDescriptor } from './canvas-types';
 import type { UserMessageQueue } from './message-queue';
+import type { SpeechPort } from './speech';
 
 /**
  * Published-version operations, implemented by `CanvasApp` so the header and
@@ -23,9 +24,14 @@ interface ToolEnvironment {
   getRoutes: () => RouteDescriptor[];
   sendPreviewCommand: (type: 'highlight' | 'clear-highlight' | 'host-event', payload?: Record<string, unknown>) => void;
   versions: VersionOperations;
+  /** The host page's speech synthesizer. Host-owned: the guest never drives it. */
+  speech: SpeechPort;
 }
 
 const emptySchema = { type: 'object', properties: {}, additionalProperties: false };
+
+/** Voices returned by `speak_text`; the platform list can run to dozens. */
+const MAX_LISTED_VOICES = 40;
 
 function tool(
   name: string,
@@ -73,6 +79,7 @@ export function createCanvasTools(environment: ToolEnvironment): ToolDefinition[
           'Call reset_project only when the user explicitly asks to restore the starter project.',
           'When the user is happy with an interface, offer to publish it with publish_app_version so other visitors can load it. Use list_app_versions to see what already exists and switch_app_version to load one. Both publishing and switching are public or destructive, so confirm with the user first.',
           'While waiting for typed or spoken requests, call poll_user_messages about every two seconds with the last message ID as afterId.',
+          'When the user is speaking rather than typing, answer out loud with speak_text and keep each turn short. It waits until the utterance finishes, so poll_user_messages afterwards rather than talking over the reply. stop_speaking cuts off anything still being spoken.',
         ],
       }),
     ),
@@ -248,6 +255,53 @@ export function createCanvasTools(environment: ToolEnvironment): ToolDefinition[
       },
       async ({ afterId }) => ({ ok: true, ...environment.messages.poll(typeof afterId === 'number' ? afterId : 0) }),
     ),
+    tool(
+      'speak_text',
+      'Speak text',
+      'Speaks text aloud through the page, using the browser\'s speech synthesizer. Use it to answer a user who is talking rather than typing. Keep each turn to a sentence or two: the call does not return until the utterance finishes. The result lists the available voices, so a later call can pick one by name.',
+      false,
+      {
+        type: 'object',
+        properties: {
+          text: { type: 'string', minLength: 1, maxLength: 2000 },
+          voice: { type: 'string' },
+          lang: { type: 'string' },
+          rate: { type: 'number', minimum: 0.5, maximum: 2 },
+          pitch: { type: 'number', minimum: 0, maximum: 2 },
+          volume: { type: 'number', minimum: 0, maximum: 1 },
+          interrupt: { type: 'boolean' },
+        },
+        required: ['text'],
+        additionalProperties: false,
+      },
+      // Every constraint above is re-checked in the port: a host is not
+      // required to enforce inputSchema before dispatching.
+      async ({ text, voice, lang, rate, pitch, volume, interrupt }) => {
+        if (typeof text !== 'string') throw new Error('text must be a string.');
+        if (voice !== undefined && typeof voice !== 'string') throw new Error('voice must be a string.');
+        if (lang !== undefined && typeof lang !== 'string') throw new Error('lang must be a string.');
+        if (interrupt !== undefined && typeof interrupt !== 'boolean') throw new Error('interrupt must be a boolean.');
+        const spoken = await environment.speech.speak({
+          text,
+          voice: voice as string | undefined,
+          lang: lang as string | undefined,
+          rate: rate as number | undefined,
+          pitch: pitch as number | undefined,
+          volume: volume as number | undefined,
+          interrupt: interrupt as boolean | undefined,
+        });
+        const voices = environment.speech.voices();
+        return {
+          ok: true,
+          ...spoken,
+          voiceCount: voices.length,
+          // The macOS shell reports 68 voices; the full list would dwarf the
+          // rest of the result, so this is a sample, not the catalogue.
+          availableVoices: voices.slice(0, MAX_LISTED_VOICES),
+        };
+      },
+    ),
+    tool('stop_speaking', 'Stop speaking', 'Immediately stops anything the page is saying and drops whatever is queued behind it.', false, emptySchema, async () => ({ ok: true, ...environment.speech.stop() })),
     tool(
       'list_app_versions',
       'List app versions',

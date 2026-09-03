@@ -36,6 +36,8 @@ export interface HealthHostHooks {
     providerId: string;
     includeAttachments: boolean;
     passphrase: string;
+    /** Called when the download itself begins, after sign-in returns a token. */
+    onImportStart: () => void;
   }) => Promise<HealthExportDocument>;
   /** Notifies the guest that auth or record state moved underneath it. */
   emit: (event: string, payload?: unknown) => void;
@@ -98,6 +100,19 @@ export function isEpicConfigured(): boolean {
 export function createHealthPort(hooks: HealthHostHooks): HealthPort {
   /** Mirrors the store, so `status()` stays synchronous for the common case. */
   let cachedRecord: HealthExportDocument | undefined;
+  /**
+   * True from the first FHIR request until the record is stored. The store is
+   * still `empty` for that whole window, so without this `getRecord()` would
+   * answer with the de-identified sample — and the guest, which switches to the
+   * record view when the download starts, would show a stranger's data under
+   * the patient's own heading. Refusing here rather than in the guest keeps it
+   * true for guest code an agent rewrote.
+   *
+   * Deliberately not set for the whole of `connect()`: while the user is still
+   * signing in, nothing has changed and the sample record is still the honest
+   * answer to `getRecord()`.
+   */
+  let importing = false;
 
   async function status(): Promise<AuthStatus> {
     const state = await recordState();
@@ -111,6 +126,7 @@ export function createHealthPort(hooks: HealthHostHooks): HealthPort {
   }
 
   async function currentRecord(): Promise<HealthExportDocument | undefined> {
+    if (importing) return undefined;
     const state = await recordState();
     // Locked means the key is gone from memory. Falling back to the demo record
     // here would quietly show a different person's data under the patient's own
@@ -135,7 +151,16 @@ export function createHealthPort(hooks: HealthHostHooks): HealthPort {
       const passphrase = await hooks.requestPassphrase('create');
       if (passphrase === null) throw new Error('Connection cancelled.');
 
-      cachedRecord = await hooks.runConnect({ providerId, includeAttachments, passphrase });
+      try {
+        cachedRecord = await hooks.runConnect({
+          providerId,
+          includeAttachments,
+          passphrase,
+          onImportStart: () => { importing = true; },
+        });
+      } finally {
+        importing = false;
+      }
       hooks.emit('record.changed');
       return status();
     },

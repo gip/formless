@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AppVersion } from '../lib/canvas-types';
 import { createCanvasTools } from '../lib/webmcp-tools';
 import { UserMessageQueue } from '../lib/message-queue';
+import type { SpeechPort } from '../lib/speech';
 
 const publishedVersion: AppVersion = {
   id: '00112233445566aa',
@@ -15,6 +16,24 @@ const publishedVersion: AppVersion = {
   bytes: 512,
   createdAt: '2026-09-01T10:00:00.000Z',
 };
+
+function speechStub(overrides: Partial<SpeechPort> = {}): SpeechPort {
+  return {
+    speak: vi.fn(async ({ text, voice }) => ({
+      spoken: text,
+      voice: voice ?? null,
+      durationMs: 1200,
+      interrupted: false,
+      stillSpeaking: false,
+    })),
+    stop: vi.fn(() => ({ cancelled: true })),
+    arm: vi.fn(),
+    voices: vi.fn(() => [{ name: 'Samantha', lang: 'en-US', default: true }]),
+    getState: vi.fn(() => ({ supported: true, armed: true, speaking: false, blocked: false, lastError: null })),
+    subscribe: vi.fn(() => () => undefined),
+    ...overrides,
+  };
+}
 
 function versionStub() {
   return {
@@ -40,6 +59,7 @@ describe('WebMCP tool contracts', () => {
       getElements: () => [{ id: 'send', label: 'Send', description: '', role: 'button', visible: true, enabled: true, kind: 'button' }],
       getRoutes: () => [{ path: '/', title: 'Home', description: 'Landing page.' }, { path: '/explore', title: 'Explore', description: 'Record explorer.' }],
       sendPreviewCommand,
+      speech: speechStub(),
       versions: versionStub(),
     });
     expect(tools.map((tool) => tool.name)).toEqual([
@@ -47,6 +67,7 @@ describe('WebMCP tool contracts', () => {
       'get_website_prompt',
       'list_project_files', 'read_project_files', 'apply_project_changes', 'reset_project',
       'get_ui_elements', 'navigate_to_route', 'highlight_ui_elements', 'clear_ui_highlights', 'poll_user_messages',
+      'speak_text', 'stop_speaking',
       'list_app_versions', 'publish_app_version', 'switch_app_version',
     ]);
     const summary = tools.find((tool) => tool.name === 'get_website_summary')!;
@@ -58,6 +79,7 @@ describe('WebMCP tool contracts', () => {
         expect.stringContaining('list_project_files'),
         expect.stringContaining('apply_project_changes'),
         expect.stringContaining('poll_user_messages'),
+        expect.stringContaining('speak_text'),
         expect.stringContaining('AgentButton'),
         expect.stringMatching(/devtools, CDP, injected CSS/),
       ]),
@@ -108,6 +130,7 @@ describe('WebMCP tool contracts', () => {
       getElements: () => [],
       getRoutes: () => [],
       sendPreviewCommand: vi.fn(),
+      speech: speechStub(),
       versions,
     });
     const list = tools.find((tool) => tool.name === 'list_app_versions')!;
@@ -155,6 +178,7 @@ describe('navigate_to_route', () => {
       getElements: () => [],
       getRoutes: () => routes,
       sendPreviewCommand,
+      speech: speechStub(),
       versions: versionStub(),
     });
     return { navigate: tools.find((tool) => tool.name === 'navigate_to_route')!, sendPreviewCommand };
@@ -195,5 +219,66 @@ describe('navigate_to_route', () => {
       ok: false,
       error: expect.stringContaining('has not declared any routes'),
     });
+  });
+});
+
+describe('speak_text and stop_speaking', () => {
+  function speechTools(speech: SpeechPort) {
+    return createCanvasTools({
+      project: {} as never,
+      messages: new UserMessageQueue(),
+      getElements: () => [],
+      getRoutes: () => [],
+      sendPreviewCommand: vi.fn(),
+      speech,
+      versions: versionStub(),
+    });
+  }
+
+  it('forwards every speech option and samples the available voices', async () => {
+    const speech = speechStub();
+    const tools = speechTools(speech);
+    const speak = tools.find((tool) => tool.name === 'speak_text')!;
+
+    // Speaking is an external side effect, so it is not a read-only tool.
+    expect(speak.annotations.readOnlyHint).toBe(false);
+    expect(await speak.execute({ text: 'Your record is ready.', voice: 'Daniel', rate: 1.2, interrupt: true })).toEqual({
+      ok: true,
+      spoken: 'Your record is ready.',
+      voice: 'Daniel',
+      durationMs: 1200,
+      interrupted: false,
+      stillSpeaking: false,
+      voiceCount: 1,
+      availableVoices: [{ name: 'Samantha', lang: 'en-US', default: true }],
+    });
+    expect(speech.speak).toHaveBeenCalledWith({
+      text: 'Your record is ready.',
+      voice: 'Daniel',
+      lang: undefined,
+      rate: 1.2,
+      pitch: undefined,
+      volume: undefined,
+      interrupt: true,
+    });
+  });
+
+  it('reports a port failure as a tool error rather than throwing', async () => {
+    const speech = speechStub({
+      speak: vi.fn(async () => { throw new Error('The browser refused to speak. Ask the user to click "Enable voice".'); }),
+    });
+    const speak = speechTools(speech).find((tool) => tool.name === 'speak_text')!;
+    expect(await speak.execute({ text: 'hello' })).toEqual({
+      ok: false,
+      error: expect.stringContaining('Enable voice'),
+    });
+    expect(await speak.execute({ text: 42 })).toMatchObject({ ok: false, error: 'text must be a string.' });
+  });
+
+  it('stops whatever is being spoken', async () => {
+    const speech = speechStub();
+    const stop = speechTools(speech).find((tool) => tool.name === 'stop_speaking')!;
+    expect(await stop.execute({})).toEqual({ ok: true, cancelled: true });
+    expect(speech.stop).toHaveBeenCalled();
   });
 });

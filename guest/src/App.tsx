@@ -4,7 +4,8 @@ import { declareRoutes } from './agent/bridge';
 import AgentComposer from './components/AgentComposer';
 import ExploreView from './components/ExploreView';
 import HomeView from './components/HomeView';
-import { ROUTES, RouteLink, useHostNavigation, useRoute } from './components/router';
+import { useImportState } from './components/import-progress';
+import { navigate, ROUTES, RouteLink, useHostNavigation, useRoute } from './components/router';
 
 /**
  * YesYou Health, running as Formless Health's guest application.
@@ -17,6 +18,15 @@ import { ROUTES, RouteLink, useHostNavigation, useRoute } from './components/rou
 export default function App() {
   const route = useRoute();
   useHostNavigation();
+  const importing = useImportState().active;
+
+  useEffect(() => {
+    // A download starting is a navigation event. The user authorized an import
+    // in a popup and came back to a page that gave no sign anything was
+    // happening; the explorer is where the progress is, and where the record
+    // itself lands when it is done.
+    if (importing) navigate('/explore');
+  }, [importing]);
 
   useEffect(() => {
     // Tells the host what this app can display. `navigate_to_route` is built
