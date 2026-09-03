@@ -41,14 +41,33 @@ export interface HealthHostHooks {
   emit: (event: string, payload?: unknown) => void;
 }
 
+/**
+ * Next inlines `process.env.NEXT_PUBLIC_*` into the client bundle by *static*
+ * text substitution, so every variable has to appear as a literal member access
+ * somewhere. A dynamic `process.env[name]` is never substituted and reads as
+ * undefined in the browser — which would fail exactly the way this module warns
+ * about below: silently, with the connect panel claiming nothing is configured.
+ *
+ * Rebuilt on each call rather than hoisted to a module constant so `vi.stubEnv`
+ * still works in tests, which stub after the module has been imported.
+ */
+function clientEnv(): Record<string, string | undefined> {
+  return {
+    NEXT_PUBLIC_EPIC_CLIENT_ID: process.env.NEXT_PUBLIC_EPIC_CLIENT_ID,
+    NEXT_PUBLIC_EPIC_SANDBOX_CLIENT_ID: process.env.NEXT_PUBLIC_EPIC_SANDBOX_CLIENT_ID,
+    NEXT_PUBLIC_EPIC_SCOPE: process.env.NEXT_PUBLIC_EPIC_SCOPE,
+  };
+}
+
 function envValue(name: string): string | null {
-  const value = (import.meta.env as Record<string, unknown> | undefined)?.[name];
+  const value = clientEnv()[name];
   return typeof value === 'string' && value ? value : null;
 }
 
 /**
  * A PKCE client id is public by construction (there is no secret in this flow),
- * so it ships as a Vite env var — the same posture as VITE_WEBCONTAINER_API_KEY.
+ * so it ships as a public env var — the same posture as
+ * NEXT_PUBLIC_WEBCONTAINER_API_KEY.
  *
  * Epic issues *separate* non-production and production client ids for the same
  * app, so the sandbox provider takes its own when one is set. Sending a
@@ -56,13 +75,13 @@ function envValue(name: string): string | null {
  */
 export function epicClientId(providerId?: string): string | null {
   if (providerId === 'epic-sandbox') {
-    return envValue('VITE_EPIC_SANDBOX_CLIENT_ID') ?? envValue('VITE_EPIC_CLIENT_ID');
+    return envValue('NEXT_PUBLIC_EPIC_SANDBOX_CLIENT_ID') ?? envValue('NEXT_PUBLIC_EPIC_CLIENT_ID');
   }
-  return envValue('VITE_EPIC_CLIENT_ID');
+  return envValue('NEXT_PUBLIC_EPIC_CLIENT_ID');
 }
 
 export function epicScope(): string | null {
-  return envValue('VITE_EPIC_SCOPE');
+  return envValue('NEXT_PUBLIC_EPIC_SCOPE');
 }
 
 /** Provider ids with a usable client id. */
@@ -71,7 +90,7 @@ export function configuredProviders(): string[] {
 }
 
 export function isEpicConfigured(): boolean {
-  // Any provider will do. Reading only VITE_EPIC_CLIENT_ID here meant that
+  // Any provider will do. Reading only NEXT_PUBLIC_EPIC_CLIENT_ID here meant that
   // configuring *just* the sandbox left the whole panel disabled.
   return configuredProviders().length > 0;
 }
@@ -110,7 +129,7 @@ export function createHealthPort(hooks: HealthHostHooks): HealthPort {
     async connect({ providerId, includeAttachments }) {
       if (epicClientId(providerId) === null) {
         throw new Error(
-          `No client id is configured for ${providerId}. Set VITE_EPIC_CLIENT_ID, or VITE_EPIC_SANDBOX_CLIENT_ID for the Epic Sandbox.`,
+          `No client id is configured for ${providerId}. Set NEXT_PUBLIC_EPIC_CLIENT_ID, or NEXT_PUBLIC_EPIC_SANDBOX_CLIENT_ID for the Epic Sandbox.`,
         );
       }
       const passphrase = await hooks.requestPassphrase('create');

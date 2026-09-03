@@ -18,7 +18,6 @@
 
 # next.js
 /.next/
-/.vinext/
 /out/
 
 # misc
@@ -43,8 +42,6 @@ yarn-error.log*
 .vercel
 next-env.d.ts
 *.tsbuildinfo
-/dist/
-/.wrangler/
 /outputs/
 /work/
 .gstack/

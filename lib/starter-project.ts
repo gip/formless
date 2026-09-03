@@ -1,4 +1,5 @@
 import type { FileMap } from './canvas-types';
+import { GENERATED_STARTER_FILES } from './generated/starter-files';
 
 /**
  * The guest project lives as real files under `guest/` and is inlined here at
@@ -22,44 +23,21 @@ import type { FileMap } from './canvas-types';
  *     not stop to download it on every dev-server start (~2.5s).
  */
 
-const GUEST_PREFIX = '../guest/';
-
 /**
- * Only files the guest project actually needs. An allowlist rather than an
- * ignore list, so an editor artefact or a stray fixture dropped into `guest/`
- * can never be mounted into the WebContainer.
+ * The guest file map is generated ahead of the build by
+ * `scripts/generate-starter-files.mjs` and checked in, rather than inlined by
+ * Vite's `import.meta.glob(..., { query: '?raw' })`. Next.js has no equivalent —
+ * Turbopack supports neither glob imports nor `?raw` — and checking the output
+ * in keeps `tsc`, `vitest`, and `next build` working without a generator step
+ * having run first.
+ *
+ * The generator owns the extension allowlist and strips exactly one trailing
+ * newline per file, so `starterPackageHash()` is unchanged from the Vite build
+ * and the prebuilt runtime in `public/guest-runtime/` stays valid. Re-run
+ * `pnpm generate:starter` after editing anything under `guest/`;
+ * `tests/starter-files.test.ts` fails when the checked-in map drifts from disk.
  */
-const GUEST_EXTENSIONS = ['.ts', '.tsx', '.css', '.json', '.html', '.mjs'];
-
-const sources = import.meta.glob('../guest/**/*', {
-  query: '?raw',
-  eager: true,
-  import: 'default',
-}) as Record<string, string>;
-
-/**
- * Files on disk carry the trailing newline every sane editor writes; the
- * original template literals did not. Stripping exactly one keeps
- * `starterPackageHash()` stable, so moving the guest to real files does not
- * invalidate the 15MB prebuilt runtime snapshot.
- * `tests/runtime-snapshot.test.ts` is the guard.
- */
-function stripOneTrailingNewline(contents: string): string {
-  return contents.endsWith('\n') ? contents.slice(0, -1) : contents;
-}
-
-function collectStarterFiles(): FileMap {
-  const files: FileMap = {};
-  for (const key of Object.keys(sources).sort()) {
-    if (!key.startsWith(GUEST_PREFIX)) continue;
-    const path = key.slice(GUEST_PREFIX.length);
-    if (!GUEST_EXTENSIONS.some((extension) => path.endsWith(extension))) continue;
-    files[path] = stripOneTrailingNewline(sources[key]);
-  }
-  return files;
-}
-
-export const STARTER_FILES: FileMap = collectStarterFiles();
+export const STARTER_FILES: FileMap = GENERATED_STARTER_FILES;
 
 export function cloneStarterFiles(): FileMap {
   return { ...STARTER_FILES };

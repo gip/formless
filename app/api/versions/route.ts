@@ -1,4 +1,3 @@
-import { env } from 'cloudflare:workers';
 import {
   errorResponse,
   json,
@@ -13,7 +12,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request): Promise<Response> {
   try {
-    const bindings = requireBindings(env as unknown as Record<string, unknown>);
+    const bindings = requireBindings(process.env);
     const viewerId = await optionalAuthorId(request);
     return json({ ok: true, versions: await listVersions(bindings, viewerId) });
   } catch (error) {
@@ -23,7 +22,7 @@ export async function GET(request: Request): Promise<Response> {
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    const bindings = requireBindings(env as unknown as Record<string, unknown>);
+    const bindings = requireBindings(process.env);
     const authorId = await requireAuthorId(request);
     const body = await readJsonBody(request);
     const version = await publishVersion(bindings, {

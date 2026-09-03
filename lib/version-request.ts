@@ -1,9 +1,9 @@
-import { authorIdFor, resolveBindings, VersionError, type VersionBindings } from './version-store';
+import { resolveBindings } from './version-db';
+import { authorIdFor, VersionError, type VersionBindings } from './version-store';
 
 /**
  * Shared request plumbing for the `/api/versions` handlers. Kept out of the
- * route files (and free of any `cloudflare:workers` import) so the node test
- * environment can exercise it against binding stubs.
+ * route files so the node test environment can exercise it directly.
  */
 
 const MIN_TOKEN_LENGTH = 16;
@@ -28,7 +28,7 @@ export function requireBindings(env: Record<string, unknown>): VersionBindings {
   const bindings = resolveBindings(env);
   if (!bindings) {
     throw new VersionError(
-      'Version storage is not configured. Set the d1 and r2 bindings in .openai/hosting.json.',
+      'Version storage is not configured. Set POSTGRES_URL.',
       503,
     );
   }

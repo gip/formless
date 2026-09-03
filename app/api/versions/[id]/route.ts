@@ -1,4 +1,3 @@
-import { env } from 'cloudflare:workers';
 import {
   errorResponse,
   json,
@@ -20,7 +19,7 @@ function versionId(value: string): string {
 
 export async function GET(request: Request, context: Context): Promise<Response> {
   try {
-    const bindings = requireBindings(env as unknown as Record<string, unknown>);
+    const bindings = requireBindings(process.env);
     const { id } = await context.params;
     const viewerId = await optionalAuthorId(request);
     const version = await getVersion(bindings, versionId(id), viewerId);
@@ -33,7 +32,7 @@ export async function GET(request: Request, context: Context): Promise<Response>
 
 export async function PATCH(request: Request, context: Context): Promise<Response> {
   try {
-    const bindings = requireBindings(env as unknown as Record<string, unknown>);
+    const bindings = requireBindings(process.env);
     const { id } = await context.params;
     const authorId = await requireAuthorId(request);
     const body = await readJsonBody(request);
@@ -49,7 +48,7 @@ export async function PATCH(request: Request, context: Context): Promise<Respons
 
 export async function DELETE(request: Request, context: Context): Promise<Response> {
   try {
-    const bindings = requireBindings(env as unknown as Record<string, unknown>);
+    const bindings = requireBindings(process.env);
     const { id } = await context.params;
     const authorId = await requireAuthorId(request);
     await hideVersion(bindings, versionId(id), authorId);

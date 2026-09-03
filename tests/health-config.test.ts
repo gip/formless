@@ -15,8 +15,8 @@ afterEach(() => {
 
 describe('client id selection', () => {
   it('uses the sandbox id for the sandbox provider', () => {
-    vi.stubEnv('VITE_EPIC_CLIENT_ID', 'production-id');
-    vi.stubEnv('VITE_EPIC_SANDBOX_CLIENT_ID', 'sandbox-id');
+    vi.stubEnv('NEXT_PUBLIC_EPIC_CLIENT_ID', 'production-id');
+    vi.stubEnv('NEXT_PUBLIC_EPIC_SANDBOX_CLIENT_ID', 'sandbox-id');
 
     expect(epicClientId('epic-sandbox')).toBe('sandbox-id');
     expect(epicClientId('ucsf')).toBe('production-id');
@@ -25,16 +25,16 @@ describe('client id selection', () => {
   });
 
   it('falls back to the main id when no sandbox id is set', () => {
-    vi.stubEnv('VITE_EPIC_CLIENT_ID', 'production-id');
-    vi.stubEnv('VITE_EPIC_SANDBOX_CLIENT_ID', '');
+    vi.stubEnv('NEXT_PUBLIC_EPIC_CLIENT_ID', 'production-id');
+    vi.stubEnv('NEXT_PUBLIC_EPIC_SANDBOX_CLIENT_ID', '');
     expect(epicClientId('epic-sandbox')).toBe('production-id');
   });
 
   it('counts as configured when only the sandbox id is set', () => {
-    // The bug this pins: reading only VITE_EPIC_CLIENT_ID left the whole panel
+    // The bug this pins: reading only NEXT_PUBLIC_EPIC_CLIENT_ID left the whole panel
     // disabled for someone who had correctly configured just the sandbox.
-    vi.stubEnv('VITE_EPIC_CLIENT_ID', '');
-    vi.stubEnv('VITE_EPIC_SANDBOX_CLIENT_ID', 'sandbox-id');
+    vi.stubEnv('NEXT_PUBLIC_EPIC_CLIENT_ID', '');
+    vi.stubEnv('NEXT_PUBLIC_EPIC_SANDBOX_CLIENT_ID', 'sandbox-id');
 
     expect(isEpicConfigured()).toBe(true);
     expect(epicClientId('epic-sandbox')).toBe('sandbox-id');
@@ -44,15 +44,15 @@ describe('client id selection', () => {
   });
 
   it('reports nothing configured when neither is set', () => {
-    vi.stubEnv('VITE_EPIC_CLIENT_ID', '');
-    vi.stubEnv('VITE_EPIC_SANDBOX_CLIENT_ID', '');
+    vi.stubEnv('NEXT_PUBLIC_EPIC_CLIENT_ID', '');
+    vi.stubEnv('NEXT_PUBLIC_EPIC_SANDBOX_CLIENT_ID', '');
     expect(isEpicConfigured()).toBe(false);
     expect(configuredProviders()).toEqual([]);
   });
 
   it('lists every provider when a production id is set', () => {
-    vi.stubEnv('VITE_EPIC_CLIENT_ID', 'production-id');
-    vi.stubEnv('VITE_EPIC_SANDBOX_CLIENT_ID', '');
+    vi.stubEnv('NEXT_PUBLIC_EPIC_CLIENT_ID', 'production-id');
+    vi.stubEnv('NEXT_PUBLIC_EPIC_SANDBOX_CLIENT_ID', '');
     expect(configuredProviders()).toEqual(['ucsf', 'sutter', 'epic-sandbox']);
   });
 });

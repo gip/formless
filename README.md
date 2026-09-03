@@ -16,8 +16,10 @@ Open `http://localhost:3000` in a Chromium browser. WebContainers require cross-
 ## The guest app
 
 Guest source lives in `guest/` as ordinary files and is inlined into a `FileMap`
-at build time. Edit it like any other project; `pnpm typecheck:guest` checks it,
-and `pnpm test` runs the instrumentation audit over it.
+in `lib/generated/starter-files.ts`. Edit it like any other project, then run
+`pnpm generate:starter` — `pnpm test` fails while the generated map is stale.
+`pnpm typecheck:guest` type-checks it, and `pnpm test` runs the instrumentation
+audit over it.
 
 Everything interactive must go through `AgentTarget` / `AgentButton` /
 `AgentInput` / `AgentLink` from `src/agent/bridge` — a raw `<button>` or `<a>` in
@@ -39,18 +41,17 @@ the microphone already follows.
 ## Connecting a real record
 
 ```bash
-cp .env.example .env.local     # then fill in VITE_EPIC_CLIENT_ID
-pnpm dev                       # Vite reads env only at startup — restart to pick it up
+cp .env.example .env.local     # then fill in NEXT_PUBLIC_EPIC_CLIENT_ID
+pnpm dev                       # env is read at startup — restart to pick it up
 ```
 
 Register `<origin>/health/callback` as the redirect URI in your Epic app
 (`http://localhost:3000/health/callback` for local development). Epic issues
 separate non-production and production client ids for the same app, so
-`VITE_EPIC_SANDBOX_CLIENT_ID` overrides the id for the Epic Sandbox provider.
+`NEXT_PUBLIC_EPIC_SANDBOX_CLIENT_ID` overrides the id for the Epic Sandbox provider.
 
-These are `VITE_`-prefixed because they are inlined at **build** time, so a
-deployed build needs them set when `pnpm build` runs — not as a Worker secret
-afterwards. That is safe: a PKCE client id is public by design and there is no
+These are `NEXT_PUBLIC_`-prefixed because they are inlined at **build** time, so
+a deployed build needs them set when `pnpm build` runs — not added afterwards. That is safe: a PKCE client id is public by design and there is no
 client secret in this flow. The host runs the PKCE flow on its own stable
 origin, because the WebContainer's origin is ephemeral and can never be
 registered; the guest only ever receives a decrypted record. The record is
@@ -76,9 +77,9 @@ open "macos/build/WebMCP Browser.app" --args --url "http://localhost:3000/?versi
 
 A version stores only the editable overlay (`src/App.tsx`, `src/components/**`, `src/styles/**`,
 `public/**`) — every protected file is re-derived from the starter, so a published version can
-never carry a modified bridge or build script. Metadata lives in D1, the overlay in R2; both
-binding names come from `.openai/hosting.json`, and a deployment without them still runs, with
-the header reporting that versions are unavailable.
+never carry a modified bridge or build script. Metadata and the overlay live in one Postgres row,
+configured by `POSTGRES_URL`; a deployment without it still runs, with the header reporting
+that versions are unavailable.
 
 Publishing needs no account. The browser mints an opaque publisher token on first publish and
 keeps it in `localStorage`; the server stores only a digest of it, and it is what lets you rename

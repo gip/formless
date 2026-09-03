@@ -7,9 +7,10 @@ This file provides repository-specific guidance to coding agents. Keep it focuse
 Package manager is **pnpm** (pnpm-lock.yaml, `node_modules/.pnpm`), though scripts are npm-compatible. Node >= 22.13.0.
 
 ```bash
-pnpm dev                  # vinext dev on http://localhost:3000
-pnpm build                # vinext build -> dist/
-pnpm lint                 # eslint (ignores dist, .next, guest)
+pnpm dev                  # next dev on http://localhost:3000
+pnpm build                # next build -> .next/
+pnpm generate:starter     # regenerate lib/generated/starter-files.ts from guest/
+pnpm lint                 # eslint (ignores .next, guest, lib/generated)
 pnpm typecheck            # tsc over the host
 pnpm typecheck:guest      # tsc over guest/ against its own tsconfig
 pnpm test                 # vitest run (tests/**/*.test.ts, node env)
@@ -48,11 +49,11 @@ Regenerating the prebuilt guest runtime (only when `guest/package.json` changes)
   via `open`, not by running the binary. Every user-initiated load recycles the web content process,
   because WebKit's process reuse makes this repo's WebContainer host fail after a few same-process
   loads — see `macos/README.md`.
-- Generated output lives in `dist/`, `.next/`, `.vinext/`, `.wrangler/`, and `test-results/`; do not treat it as source.
+- Generated output lives in `.next/` and `test-results/`; do not treat it as source. `lib/generated/starter-files.ts` is generated but **is** checked in — see `lib/starter-project.ts`.
 
 ## Architecture
 
-The runtime application is a two-layer system. The **host** (this repo, Next.js App Router via `vinext` on Cloudflare Workers) boots a WebContainer holding a **guest** React+Vite project (`guest/`, inlined by `lib/starter-project.ts`), renders it in a cross-origin iframe, and exposes fourteen WebMCP tools to a browser agent. It also serves a small versions API backed by D1 and R2.
+The runtime application is a two-layer system. The **host** (this repo, Next.js App Router on Vercel) boots a WebContainer holding a **guest** React+Vite project (`guest/`, inlined by `lib/starter-project.ts`), renders it in a cross-origin iframe, and exposes fourteen WebMCP tools to a browser agent. It also serves a small versions API backed by Postgres.
 
 ```
 Browser agent ──WebMCP tools──▶ Host page (app/CanvasApp.tsx)
@@ -68,11 +69,10 @@ Browser agent ──WebMCP tools──▶ Host page (app/CanvasApp.tsx)
 - `lib/project-controller.ts` — singleton (`getProjectController()`) that owns the WebContainer lifecycle and the authoritative in-memory `FileMap`. State machine phases are the `RuntimePhase` union in `canvas-types.ts`; the UI subscribes via `controller.subscribe()`.
 - `lib/webmcp-tools.ts` — builds the fourteen `ToolDefinition`s and registers them on `document.modelContext` when native WebMCP exists. There is no in-page fallback console: without native WebMCP the tools are simply not reachable from the page, and `CanvasApp` shows "Local test bridge only".
 - `lib/project-policy.ts` — path normalization + the editable-surface allowlist. `lib/persistence.ts` — IndexedDB snapshot (`webmcp-canvas`/`project-snapshots`). `lib/bridge.ts` — trusted-message predicate. `lib/hash.ts` — 16-char SHA-256 prefix. `lib/file-tree.ts` — `FileMap` → `FileSystemTree`.
-- `guest/` — the entire guest project as real files at their real paths. `lib/starter-project.ts` inlines them into a `FileMap` at build time with an eager `import.meta.glob(..., { query: '?raw' })`, filtered to an extension allowlist, stripping exactly one trailing newline per file so `starterPackageHash()` stays stable. Edit guest code as ordinary files — it was escaped template literals until the guest grew into a real application.
+- `guest/` — the entire guest project as real files at their real paths. `scripts/generate-starter-files.mjs` inlines them into `lib/generated/starter-files.ts` (checked in), filtered to an extension allowlist, stripping exactly one trailing newline per file so `starterPackageHash()` stays stable. **Re-run `pnpm generate:starter` after editing anything under `guest/`**; `tests/starter-files.test.ts` fails when the checked-in map drifts from disk. This was an `import.meta.glob(..., { query: '?raw' })` under Vite, which could not go stale — Next supports neither glob imports nor `?raw`, so the freshness guarantee moved into a test. Edit guest code as ordinary files.
   - `guest/` is excluded from the host `tsconfig.json` and `eslint.config.mjs`: it targets its own React version and imports `./agent/bridge`, so host type-checking only produces noise. Guest syntax is checked in-container by `guest/scripts/validate-syntax.mjs`, and `tests/guest-audit.test.ts` runs the instrumentation audit plus the structural invariants at host test time.
-  - `vitest.config.ts` sets `css: true`; without it a `?raw` import of `guest/src/styles/*.css` resolves to an empty stub under Vitest and the guest ships with no stylesheet.
 - `lib/runtime-snapshot.ts` + `public/guest-runtime/` — the prebuilt WebContainer filesystem. `app/dev/snapshot/` is the dev-only generator that produces it.
-- `lib/version-store.ts` (D1 + R2), `lib/version-request.ts` (auth, body limits, error mapping), `app/api/versions/**` (handlers), `lib/version-client.ts` (browser), `app/VersionSwitcher.tsx` (header UI). See **Published versions** below.
+- `lib/version-store.ts` (Postgres, driver-free), `lib/version-db.ts` (the `pg` pool), `lib/version-request.ts` (auth, body limits, error mapping), `app/api/versions/**` (handlers), `lib/version-client.ts` (browser), `app/VersionSwitcher.tsx` (header UI). See **Published versions** below.
 
 ### Three invariants that drive most of the code
 
@@ -86,12 +86,14 @@ Two consequences to preserve when touching the guest `package.json`: a remounted
 
 ### Published versions
 
-A version is **the editable overlay only** — `extractOverlay()` / `validateOverlay()` in `project-policy.ts`. `mergeSnapshot()` re-derives every protected file from `STARTER_FILES`, so invariant 2 holds by construction at both ends: a published version physically cannot carry a modified `src/agent/bridge.tsx` or `package.json`, however it was written. Overlays are validated on the way in *and* on the way out of R2.
+A version is **the editable overlay only** — `extractOverlay()` / `validateOverlay()` in `project-policy.ts`. `mergeSnapshot()` re-derives every protected file from `STARTER_FILES`, so invariant 2 holds by construction at both ends: a published version physically cannot carry a modified `src/agent/bridge.tsx` or `package.json`, however it was written. Overlays are validated on the way in *and* on the way out of the database.
 
 - `ProjectController.loadVersion()` is the single switch path; `reset()` is `loadVersion(rev, starterOverlay())`. It deliberately **skips `npm run validate`** — an overlay can only be published from a draft that already passed validation in `applyChanges`, so a switch is `restoreFiles` plus HMR (~200ms) rather than a 45s revalidation. It still increments the revision, so an `apply_project_changes` in flight across a switch fails on a stale `baseRevision` instead of writing into the version the user just left.
 - Identity is an opaque publisher token in `localStorage`; the server stores only `sha256Hex()` of it as `author_id`. There is no sign-in flow on purpose — `macos/` implements no `createWebViewWith`, so an OAuth popup would be a dead end there.
-- Bindings come from `.openai/hosting.json` (`"d1": "DB"`, `"r2": "VERSIONS"`) and are read with `import { env } from 'cloudflare:workers'` in the route files only, never in `lib/` — that is what keeps `version-store.ts` testable under the node environment. `ensureSchema()` applies the schema lazily per isolate because `vite.config.ts` pins a placeholder `database_id`.
-- Missing bindings are a **soft failure**: the routes answer 503 and the header degrades, matching `fetchRuntimeSnapshot()`'s posture. Never make the canvas depend on the backend being present.
+- Storage is a single Postgres table: the index columns plus the overlay in a `jsonb` column. It was D1 plus one R2 object per version on Cloudflare; neither exists on Vercel, and a 2MB overlay cap (`version-request.ts`) fits in a column. Publishing is therefore **one atomic INSERT** — the old code wrote the blob before the index row precisely because it could not be. `version-store.ts` takes a `SqlClient` and imports no driver, which is what keeps it testable under the node environment; `lib/version-db.ts` owns the memoized `pg` pool. `ensureSchema()` applies the schema lazily, so an empty database works with no migration step.
+- `created_at` is TEXT holding an ISO-8601 UTC string, carried over from D1 rather than converted to `timestamptz`: the rate limiter compares it as a string, and ISO-8601 UTC sorts lexicographically the same way it sorts chronologically.
+- `listVersions` deliberately does not select `overlay`; listing every version would otherwise pull up to 2MB of source per row to render a dropdown.
+- A missing `POSTGRES_URL` is a **soft failure**: the routes answer 503 and the header degrades, matching `fetchRuntimeSnapshot()`'s posture. Never make the canvas depend on the backend being present.
 - The preview iframe drops `microphone` from `allow` while a version the viewer did not publish is loaded; `allow` is read at load, so it is part of the iframe `key`.
 - Persisted identifiers still carry the old `webally-` prefix on purpose, and the product rename to Formless Health
   deliberately left them alone: the IndexedDB name `webally-health` and its AES-GCM AAD `webally-health/record/v1`
@@ -161,7 +163,7 @@ verbatim, `types.ts`/`storage.ts`/`session.ts`/`import.ts` are adapted.
 - The agent cannot start a sign-in: `window.open` needs transient user
   activation, so a popup opened from a tool call is blocked. Auth stays a user
   gesture; the agent's role is `navigate_to_route` and highlighting.
-- `VITE_EPIC_CLIENT_ID` enables it. Missing config is a **soft failure**: the
+- `NEXT_PUBLIC_EPIC_CLIENT_ID` enables it. Missing config is a **soft failure**: the
   connect panel says so and `/explore` still serves `public/demo/`'s
   de-identified sample. Never make the canvas depend on it.
 - The demo fixture lives in the **host's** `public/`, not the guest's: at ~4.5MB
@@ -187,11 +189,15 @@ Preserve the protocol's trust boundary: the system prompt is installed outside t
 
 ## Cross-origin isolation
 
-COOP/COEP headers are set in **three** places and must stay consistent: `vite.config.ts` (`server.headers`, dev), `proxy.ts` (Next middleware, runtime), and `next.config.ts` (`headers()`). Dropping any one breaks `WebContainer.boot({ coep: 'require-corp' })`. `next.config.ts` and `proxy.ts` also set `Cross-Origin-Resource-Policy: cross-origin`.
+COOP/COEP headers are set in **two** places and must stay consistent: `proxy.ts` (Next middleware) and `next.config.ts` (`headers()`). Dropping either breaks `WebContainer.boot({ coep: 'require-corp' })`. Both also set `Cross-Origin-Resource-Policy: cross-origin`. There was a third copy in `vite.config.ts` for the Vite dev server; `next dev` honours `next.config.ts` directly, so it is gone.
 
 ## Deployment
 
-Cloudflare Workers via `@cloudflare/vite-plugin` + wrangler. Bindings are driven by `.openai/hosting.json` (`d1`/`r2`, both `null` today) — set a binding name there rather than hand-writing wrangler config in `vite.config.ts`. Wrangler/Miniflare state is forced project-local into `.wrangler/` by `vite.config.ts`. An optional `VITE_WEBCONTAINER_API_KEY` is passed to `configureAPIKey` when present.
+Vercel, as a stock Next.js app — there is no adapter, no `vite.config.ts`, and no deployment plugin. Set `POSTGRES_URL` (or `DATABASE_URL`) to a **pooled** endpoint: serverless functions open a connection per warm instance, so a direct endpoint will exhaust its connection limit.
+
+Client-visible configuration is `NEXT_PUBLIC_`-prefixed and inlined at **build** time, so it must be set when `next build` runs, not added afterwards. Next substitutes those statically, which is why `lib/health/port.ts` writes each variable as a literal `process.env.NEXT_PUBLIC_X` member access inside `clientEnv()` rather than indexing `process.env` by a computed name — a dynamic read is never substituted and silently reads as undefined in the browser.
+
+This app previously deployed to OpenAI Sites on Cloudflare Workers via `vinext` (a Vite reimplementation of Next), `@cloudflare/vite-plugin`, and `@openai/sites-vite-plugin`, with `.openai/hosting.json` naming the D1/R2 bindings. All of that is gone.
 
 ## Testing shape
 
@@ -204,3 +210,13 @@ pnpm exec tsc --noEmit --strict --skipLibCheck --target ES2022 --module ESNext -
 ```
 
 After changing any skill file, run the active `skill-creator` validator against `skills/formless-apps`. Also exercise negotiation, invalid sessions, stale revisions, cancellation, principal changes, and confirmation-token behavior when the corresponding contract changes.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

@@ -108,7 +108,7 @@ export default function CanvasApp() {
       new Promise<string | null>((settle) => setPassphraseRequest({ mode, settle })),
     runConnect: async ({ providerId, includeAttachments, passphrase }) => {
       const clientId = epicClientId(providerId);
-      if (!clientId) throw new Error('VITE_EPIC_CLIENT_ID is not set.');
+      if (!clientId) throw new Error('NEXT_PUBLIC_EPIC_CLIENT_ID is not set.');
       return connectAndImport({
         providerId,
         includeAttachments,
