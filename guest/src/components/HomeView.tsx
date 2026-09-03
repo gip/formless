@@ -56,7 +56,7 @@ export default function HomeView() {
             description="Explains what the service does with the patient's health data and what choices they will have."
           >
             <p className="lede">
-              YesYou Health helps patients understand the actions taken and documented as part of their care.
+              Formless Health helps patients understand the actions taken and documented as part of their care.
               Connect MyChart, authorize read-only access, and receive a private export of the health data
               made available by your provider, encrypted on your device with a passphrase you choose.
               As the platform grows, patients will also be able to choose whether to contribute a

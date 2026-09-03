@@ -166,7 +166,7 @@ export async function connectAndImport({
   const record: HealthExportDocument = {
     schemaVersion: 1,
     exportedAt: new Date().toISOString(),
-    exportedBy: 'YesYou Health',
+    exportedBy: 'Formless Health',
     source: {
       provider: provider.name,
       fhirBase: auth.fhirBase,

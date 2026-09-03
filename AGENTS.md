@@ -36,15 +36,15 @@ Regenerating the prebuilt guest runtime (only when `guest/package.json` changes)
 
 ## Repository scope
 
-- `app/`, `lib/`, `public/`, and `tests/` implement and verify the Formless Health host application.
+- `app/`, `lib/`, `public/`, and `tests/` implement and verify the Formless Labs host application.
 - `guest/` is the guest project mounted into the WebContainer — it is source, but it is *not* host
   source: it never runs in this app's process, compiles against its own `guest/tsconfig.json` and
   React version, and is excluded from the host tsconfig and eslint config. Do not import from it
   anywhere except `lib/starter-project.ts`.
-- `skills/formless-apps/` is a reusable Codex skill and protocol kit. It is not imported by or bundled into the Formless Health runtime.
+- `skills/formless-apps/` is a reusable Codex skill and protocol kit. It is not imported by or bundled into the Formless Labs runtime.
 - `macos/` is a standalone SwiftPM app — a generic WebMCP browser (address bar + `WKWebView` + a
-  `document.modelContext` polyfill and native bridge). It is not specific to Formless Health and shares no code
-  with the web app; it is useful here because Formless Health is a page that registers tools. Media capture
+  `document.modelContext` polyfill and native bridge). It is not specific to Formless Labs and shares no code
+  with the web app; it is useful here because Formless Labs is a page that registers tools. Media capture
   there has two independent gates (a `WKUIDelegate` site prompt and macOS TCC) and must be launched
   via `open`, not by running the binary. Every user-initiated load recycles the web content process,
   because WebKit's process reuse makes this repo's WebContainer host fail after a few same-process
@@ -65,9 +65,9 @@ Browser agent ──WebMCP tools──▶ Host page (app/CanvasApp.tsx)
 
 ### Host pieces
 
-- `app/CanvasApp.tsx` — owns all application state: the iframe, the `postMessage` listener, the message queue, tool registration, and the version list. The UI is a header (brand, version picker, connection pill) over a full-width preview; there is no side rail. Everything else is a plain module, except `app/VersionSwitcher.tsx`, which is presentational and holds only its own disclosure and form state.
+- `app/CanvasApp.tsx` — owns all application state: the iframe, the `postMessage` listener, the message queue, tool registration, and the version list. The UI is a header (brand, version picker, import pill) over a full-width preview; there is no side rail, no preview chrome, and no connection or voice pill. Everything else is a plain module, except `app/VersionSwitcher.tsx`, which is presentational and holds only its own disclosure and form state.
 - `lib/project-controller.ts` — singleton (`getProjectController()`) that owns the WebContainer lifecycle and the authoritative in-memory `FileMap`. State machine phases are the `RuntimePhase` union in `canvas-types.ts`; the UI subscribes via `controller.subscribe()`.
-- `lib/webmcp-tools.ts` — builds the nineteen `ToolDefinition`s and registers them on `document.modelContext` when native WebMCP exists. There is no in-page fallback console: without native WebMCP the tools are simply not reachable from the page, and `CanvasApp` shows "Local test bridge only".
+- `lib/webmcp-tools.ts` — builds the nineteen `ToolDefinition`s and registers them on `document.modelContext` when native WebMCP exists. There is no in-page fallback console: without native WebMCP the tools are simply not reachable from the page. The host says so once, to the guest, as an `mcp.status` host-event answering the guest's manifest; the guest's `AgentComposer` replaces its input and buttons with an explanation rather than queueing messages nothing will poll.
 - `lib/project-policy.ts` — path normalization + the editable-surface allowlist. `lib/persistence.ts` — IndexedDB snapshot (`webmcp-canvas`/`project-snapshots`). `lib/bridge.ts` — trusted-message predicate. `lib/hash.ts` — 16-char SHA-256 prefix. `lib/file-tree.ts` — `FileMap` → `FileSystemTree`.
 - `guest/` — the entire guest project as real files at their real paths. `scripts/generate-starter-files.mjs` inlines them into `lib/generated/starter-files.ts` (checked in), filtered to an extension allowlist, stripping exactly one trailing newline per file so `starterPackageHash()` stays stable. **Re-run `pnpm generate:starter` after editing anything under `guest/`**; `tests/starter-files.test.ts` fails when the checked-in map drifts from disk. This was an `import.meta.glob(..., { query: '?raw' })` under Vite, which could not go stale — Next supports neither glob imports nor `?raw`, so the freshness guarantee moved into a test. Edit guest code as ordinary files.
   - `guest/` is excluded from the host `tsconfig.json` and `eslint.config.mjs`: it targets its own React version and imports `./agent/bridge`, so host type-checking only produces noise. Guest syntax is checked in-container by `guest/scripts/validate-syntax.mjs`, and `tests/guest-audit.test.ts` runs the instrumentation audit plus the structural invariants at host test time.
@@ -95,14 +95,14 @@ A version is **the editable overlay only** — `extractOverlay()` / `validateOve
 - `listVersions` deliberately does not select `overlay`; listing every version would otherwise pull up to 2MB of source per row to render a dropdown.
 - A missing `POSTGRES_URL` is a **soft failure**: the routes answer 503 and the header degrades, matching `fetchRuntimeSnapshot()`'s posture. Never make the canvas depend on the backend being present.
 - The preview iframe drops `microphone` from `allow` while a version the viewer did not publish is loaded; `allow` is read at load, so it is part of the iframe `key`.
-- Persisted identifiers still carry the old `webally-` prefix on purpose, and the product rename to Formless Health
+- Persisted identifiers still carry the old `webally-` prefix on purpose, and the product renames to Formless Labs (host) and Formless Health (guest)
   deliberately left them alone: the IndexedDB name `webally-health` and its AES-GCM AAD `webally-health/record/v1`
   (`lib/health/storage.ts`), the publisher token key and its server-side digest prefix `webally-publisher/v1:`
   (`lib/version-client.ts`, `lib/version-store.ts`), the guest state prefix (`lib/guest-state.ts`), and the auth
   channel names (`lib/health/session.ts`). Renaming the AAD makes every existing encrypted record permanently
   undecryptable; renaming the digest prefix strips every existing publisher of the ability to rename or unpublish
   their versions. These are invisible to users — treat them as wire format, not branding.
-- The macOS shell gets this page-level only, via `?version=<id>`. Do not add a versions panel specific to Formless Health to `macos/` — it is a browser for any site.
+- The macOS shell gets this page-level only, via `?version=<id>`. Do not add a versions panel specific to Formless Labs to `macos/` — it is a browser for any site.
 
 ### The bridge (host ↔ guest)
 
@@ -224,9 +224,10 @@ node environment.
 
 Two browser facts are baked into it and should not be "simplified" away. **Chrome refuses
 `speechSynthesis.speak()` on a document with no user activation** (`error: 'not-allowed'`), and this
-document rarely has one, because the user's clicks land inside the cross-origin preview iframe. That
-is the entire reason `app/VoicePill.tsx` exists: its first click speaks a silent primer and arms the
-engine, and a `not-allowed` error afterwards sets `blocked` so the header says why nothing was said.
+document rarely has one, because the user's clicks land inside the cross-origin preview iframe. So `CanvasApp` spends the
+user's first pointer or key event on the host page arming the engine with a silent primer, through a
+one-shot capturing listener. There is no longer a visible control for this; `NOT_ALLOWED` in
+`lib/speech.ts` is what tells the agent to ask the user to click the host page.
 `macos/` needs none of it (`mediaTypesRequiringUserActionForPlayback = []`). And **Chrome's
 synthesis watchdog truncates utterances past roughly fifteen seconds**, so a `resume()` heartbeat
 runs every ten seconds while speech is in flight. `speak()` resolves on `end`, caps the wait at 60s

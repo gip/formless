@@ -14,7 +14,7 @@ const MAX_WAIT_MS = 60_000;
 const RESUME_INTERVAL_MS = 10_000;
 
 const NOT_ALLOWED =
-  'The browser refused to speak because the page has no user activation. Ask the user to click "Enable voice" in the Formless Health header, then call speak_text again.';
+  'The browser refused to speak because the page has no user activation. Ask the user to click anywhere on the Formless Labs page, outside the preview, then call speak_text again.';
 const UNSUPPORTED = 'This browser does not provide the Web Speech synthesis API, so the page cannot speak.';
 
 /** The slice of `SpeechSynthesisVoice` this module uses. */

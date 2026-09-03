@@ -22,9 +22,17 @@ export interface VersionSwitcherProps {
   onSwitch: (id: string | null) => void;
   onPublish: (name: string, description: string) => void;
   onUnpublish: (id: string) => void;
+  /**
+   * Reloads the built-in app from source, discarding the working copy.
+   *
+   * Distinct from `onSwitch(null)`, which is a no-op once the starter is
+   * already the loaded version — that is exactly the case where someone (or an
+   * agent) has edited the default app and wants it back.
+   */
+  onReset: () => void;
 }
 
-const STARTER_LABEL = 'Starter project';
+const STARTER_LABEL = 'Default app';
 
 function relativeTime(iso: string): string {
   const elapsed = Date.now() - new Date(iso).getTime();
@@ -42,6 +50,7 @@ export default function VersionSwitcher(props: VersionSwitcherProps) {
   const [open, setOpen] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [pendingSwitch, setPendingSwitch] = useState<{ id: string | null; label: string } | null>(null);
+  const [pendingReset, setPendingReset] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
@@ -55,6 +64,7 @@ export default function VersionSwitcher(props: VersionSwitcherProps) {
     setOpen(false);
     setPublishing(false);
     setPendingSwitch(null);
+    setPendingReset(false);
   }, []);
 
   useEffect(() => {
@@ -116,7 +126,21 @@ export default function VersionSwitcher(props: VersionSwitcherProps) {
         <div className="version-menu" role="menu">
           {error && <p className="version-error">{error}</p>}
 
-          {pendingSwitch ? (
+          {pendingReset ? (
+            <div className="version-confirm">
+              <p>
+                This throws away the working copy and reloads the built-in
+                {' '}<strong>Formless Health</strong> app from source. Anything you or an agent
+                changed and did not publish is lost.
+              </p>
+              <div className="version-confirm-actions">
+                <button type="button" className="danger" onClick={() => { props.onReset(); closeMenu(); }}>
+                  Reset to the default app
+                </button>
+                <button type="button" onClick={() => setPendingReset(false)}>Cancel</button>
+              </div>
+            </div>
+          ) : pendingSwitch ? (
             <div className="version-confirm">
               <p>
                 Your working copy has unpublished changes. Loading <strong>{pendingSwitch.label}</strong> replaces them.
@@ -157,7 +181,7 @@ export default function VersionSwitcher(props: VersionSwitcherProps) {
                   placeholder="What makes this interface different?"
                 />
               </label>
-              <p className="version-note">Published versions are visible to everyone who opens Formless Health.</p>
+              <p className="version-note">Published versions are visible to everyone who opens Formless Labs.</p>
               <div className="version-confirm-actions">
                 <button type="button" className="primary" onClick={submitPublish} disabled={!name.trim() || busy}>
                   Publish
@@ -212,13 +236,27 @@ export default function VersionSwitcher(props: VersionSwitcherProps) {
                     disabled={busy}
                   >
                     <span className="version-check" aria-hidden="true">{currentId === null ? '✓' : ''}</span>
-                    <span className="version-name">{STARTER_LABEL}</span>
+                    <span className="version-name">
+                      {STARTER_LABEL}
+                      <small>The built-in Formless Health app</small>
+                    </span>
                     <span className="version-meta">built in</span>
                   </button>
                 </li>
               </ul>
               <button type="button" className="version-publish-open" onClick={() => setPublishing(true)} disabled={busy || Boolean(error)}>
                 + Publish current…
+              </button>
+              <button
+                type="button"
+                className="version-publish-open version-reset"
+                onClick={() => setPendingReset(true)}
+                disabled={busy || (currentId === null && !dirty)}
+                title={currentId === null && !dirty
+                  ? 'The default app is already loaded, unchanged.'
+                  : 'Discard the working copy and reload the built-in app.'}
+              >
+                <span aria-hidden="true">↺</span> Reset to the default app
               </button>
             </>
           )}

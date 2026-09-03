@@ -13,6 +13,13 @@ import { useEffect, useRef, useState } from 'react';
 
 export const MIN_PASSPHRASE_LENGTH = 12;
 
+/**
+ * The key used when someone declines to choose a passphrase. It is a fixed,
+ * public-by-construction string: the record is still encrypted at rest, but
+ * anyone with the browser profile can read it. Only for demo and test records.
+ */
+const NO_PASSPHRASE_KEY = 'formlesspassphrasedefault';
+
 export default function PassphrasePrompt({
   mode,
   onSubmit,
@@ -93,6 +100,21 @@ export default function PassphrasePrompt({
           <button type="submit" className="passphrase-primary">
             {mode === 'create' ? 'Encrypt and continue' : 'Unlock'}
           </button>
+        </div>
+
+        <div className="passphrase-plain">
+          <button
+            type="button"
+            className="passphrase-plain-button"
+            onClick={() => onSubmit(NO_PASSPHRASE_KEY)}
+          >
+            {mode === 'create' ? 'Continue without a passphrase' : 'I did not set a passphrase'}
+          </button>
+          <p>
+            Storing real, unencrypted health data in a browser is not advised — without a
+            passphrase of your own, anyone with access to this browser profile can read the
+            record. Use this for demo and test data only.
+          </p>
         </div>
       </form>
     </dialog>

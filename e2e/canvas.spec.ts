@@ -57,8 +57,7 @@ async function pushHostEvent(page: Page, event: string, payload?: unknown) {
 test('exposes the canvas and registers its tools natively', async ({ page }) => {
   await installModelContext(page);
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Agent-ready interface lab' })).toBeVisible();
-  await expect(page.getByText('Native WebMCP connected')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Formless Labs' })).toBeVisible();
 
   const names = await page.evaluate(() =>
     (window as unknown as { __tools: { name: string }[] }).__tools.map((tool) => tool.name));
@@ -88,9 +87,8 @@ test('registers each tool once and keeps it registered', async ({ page }) => {
 
   const count = () => page.evaluate(() => (window as unknown as { __tools: unknown[] }).__tools.length);
   await expect.poll(count, { timeout: 10_000 }).toBe(19);
-  await expect(page.getByText('Native WebMCP connected')).toBeVisible();
 
-  await page.locator('.preview-status.ready').waitFor({ timeout: 90_000 });
+  await page.locator('.preview-stage[data-phase="ready"]').waitFor({ timeout: 90_000 });
   await page.waitForTimeout(1_500);
   expect(await count()).toBe(19);
 });
@@ -251,7 +249,10 @@ test('declares its routes and lets the agent navigate to the record explorer', a
 test('shows the record view filling up while the host imports', async ({ page }) => {
   await page.goto('/');
   const preview = page.frameLocator('iframe[title="Editable WebMCP application preview"]');
-  await expect(preview.getByRole('button', { name: 'Send to agent' })).toBeVisible({ timeout: 90_000 });
+  // No `installModelContext` here: this drives the host directly, so the guest
+  // composer is in its no-agent state and has no send button. The nav is the
+  // readiness signal that does not depend on whether a client is attached.
+  await expect(preview.getByRole('link', { name: 'Explore your record' })).toBeVisible({ timeout: 90_000 });
   // The app starts on the landing page, and nothing has moved it.
   await expect(preview.getByRole('heading', { name: 'Downloading your record' })).toHaveCount(0);
 
@@ -336,9 +337,10 @@ test('speaks agent text through the page and stops on request', async ({ page })
   });
 
   await page.goto('/');
-  // The control is what gives the document the user activation Chrome wants.
-  await page.getByRole('button', { name: 'Enable voice' }).click();
-  await expect(page.getByRole('button', { name: 'Voice on' })).toBeVisible();
+  // There is no voice control any more: `CanvasApp` arms the synthesizer on the
+  // first interaction with the host page, so clicking the header is what gives
+  // the document the user activation Chrome wants.
+  await page.locator('header.topbar').click({ position: { x: 5, y: 5 } });
 
   expect(await callTool(page, 'speak_text', { text: 'Your record is ready.', voice: 'Test Voice', rate: 1.1 }))
     .toMatchObject({

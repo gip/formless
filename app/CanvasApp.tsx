@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import VersionSwitcher from './VersionSwitcher';
-import VoicePill from './VoicePill';
 import PassphrasePrompt from './PassphrasePrompt';
 import { isTrustedPreviewMessage } from '@/lib/bridge';
 import type { AppVersion, FileMap, RouteDescriptor, UiElementDescriptor } from '@/lib/canvas-types';
@@ -23,8 +22,6 @@ import {
   writeVersionParam,
 } from '@/lib/version-client';
 import {
-  getServerSpeechState,
-  getSpeechState,
   isNativeWebMcp,
   messageQueue,
   sendPreviewCommand,
@@ -35,7 +32,6 @@ import {
   setVersionOperations,
   speechPort,
   subscribeNativeWebMcp,
-  subscribeSpeech,
 } from '@/lib/webmcp-runtime';
 
 const initialControllerState: ControllerState = {
@@ -44,19 +40,6 @@ const initialControllerState: ControllerState = {
   revision: 0,
   previewUrl: null,
   versionId: null,
-};
-
-const phaseLabels: Record<ControllerState['phase'], string> = {
-  idle: 'Waiting',
-  restoring: 'Restoring source',
-  booting: 'Booting runtime',
-  hydrating: 'Loading runtime',
-  mounting: 'Mounting project',
-  installing: 'Installing packages',
-  starting: 'Starting preview',
-  ready: 'Canvas ready',
-  validating: 'Validating update',
-  error: 'Runtime unavailable',
 };
 
 /**
@@ -76,7 +59,6 @@ export default function CanvasApp() {
   const controller = useMemo(() => getProjectController(), []);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const nativeWebMcp = useSyncExternalStore(subscribeNativeWebMcp, isNativeWebMcp, () => false);
-  const speech = useSyncExternalStore(subscribeSpeech, getSpeechState, getServerSpeechState);
   const [runtime, setRuntime] = useState(initialControllerState);
   const [versions, setVersions] = useState<AppVersion[]>([]);
   const [versionsError, setVersionsError] = useState<string | null>(null);
@@ -217,6 +199,24 @@ export default function CanvasApp() {
     void controller.boot().catch(() => undefined);
   }, [controller]);
 
+  /**
+   * `speechSynthesis` refuses to start until the document has user activation,
+   * and there is no longer a header control to supply it. Any real interaction
+   * with the host page counts, so the first one is spent arming the port and
+   * the listener retires itself.
+   */
+  useEffect(() => {
+    const arm = () => {
+      try { speechPort.arm(); } catch { /* Unsupported browsers stay silent. */ }
+    };
+    window.addEventListener('pointerdown', arm, { once: true, capture: true });
+    window.addEventListener('keydown', arm, { once: true, capture: true });
+    return () => {
+      window.removeEventListener('pointerdown', arm, { capture: true });
+      window.removeEventListener('keydown', arm, { capture: true });
+    };
+  }, []);
+
   useEffect(() => {
     function onMessage(event: MessageEvent) {
       if (!isTrustedPreviewMessage(event, iframeRef.current?.contentWindow ?? null, previewOrigin)) return;
@@ -235,6 +235,11 @@ export default function CanvasApp() {
           (route) => route && typeof route.path === 'string' && typeof route.title === 'string',
         );
         setDeclaredRoutes({ key: previewIdentity, routes: clean });
+        // The manifest is the guest saying it has mounted, which is the first
+        // moment it can hear anything. Whether a real MCP client is attached
+        // decides what the guest's composer renders, so it is answered here
+        // rather than pushed blindly when the iframe's src is set.
+        emitHostEvent('mcp.status', { connected: nativeWebMcp });
       }
       if (event.data.type === 'host-request' && typeof payload?.id === 'string' && typeof payload?.method === 'string') {
         const { id, method } = payload as { id: string; method: string };
@@ -250,7 +255,7 @@ export default function CanvasApp() {
     }
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [previewOrigin, capabilities, previewIdentity]);
+  }, [previewOrigin, capabilities, previewIdentity, nativeWebMcp]);
 
   // Tools are already registered (see lib/webmcp-runtime). All this does is
   // hand the runtime the live preview window once it exists.
@@ -306,6 +311,16 @@ export default function CanvasApp() {
       setVersionBusy(false);
     }
   }, [controller]);
+
+  /**
+   * Reloads the built-in app, discarding whatever the working copy holds.
+   *
+   * `switchToVersion(null)` already rebuilds from `starterOverlay()`, so this is
+   * that call without the picker's "you are already here" short-circuit — the
+   * starter being the loaded version is the normal case for a reset, because
+   * what people want undone is usually an agent's edits to the default app.
+   */
+  const resetToStarter = useCallback(() => switchToVersion(null), [switchToVersion]);
 
   const publishCurrent = useCallback(async (name: string, description: string): Promise<AppVersion> => {
     setVersionBusy(true);
@@ -397,8 +412,7 @@ export default function CanvasApp() {
       <header className="topbar">
         <div className="brand-mark" aria-hidden="true">F</div>
         <div className="brand-copy">
-          <p className="eyebrow">Formless Health</p>
-          <h1>Agent-ready interface lab</h1>
+          <h1>Formless Labs</h1>
         </div>
         <VersionSwitcher
           versions={versions}
@@ -410,6 +424,7 @@ export default function CanvasApp() {
           onSwitch={(id) => { void switchToVersion(id).catch(() => undefined); }}
           onPublish={(name, description) => { void publishCurrent(name, description).catch(() => undefined); }}
           onUnpublish={(id) => { void unpublishCurrent(id); }}
+          onReset={() => { void resetToStarter().catch(() => undefined); }}
         />
         {importing ? (
           <div className="import-pill" role="status" aria-live="polite">
@@ -418,17 +433,6 @@ export default function CanvasApp() {
               : 'Starting import…'}
           </div>
         ) : null}
-        <VoicePill
-          supported={speech.supported}
-          armed={speech.armed}
-          speaking={speech.speaking}
-          blocked={speech.blocked}
-          onArm={() => speechPort.arm()}
-          onStop={() => speechPort.stop()}
-        />
-        <div className={`connection-pill ${nativeWebMcp ? 'online' : ''}`}>
-          <span /> {nativeWebMcp ? 'Native WebMCP connected' : 'Local test bridge only'}
-        </div>
       </header>
 
       {passphraseRequest ? (
@@ -439,18 +443,8 @@ export default function CanvasApp() {
         />
       ) : null}
 
-      <section className="workspace" aria-label="Formless Health workspace">
-        <div className="preview-stage">
-          <div className="preview-toolbar">
-            <span className="browser-dot red" /><span className="browser-dot amber" /><span className="browser-dot green" />
-            <span className="preview-label">Live WebContainer preview</span>
-            {routes.length ? (
-              <span className="preview-routes" title={routes.map((route) => route.path).join(' ')}>
-                {routes.length} route{routes.length === 1 ? '' : 's'}
-              </span>
-            ) : null}
-            <span className={`preview-status ${runtime.phase}`}><i />{phaseLabels[runtime.phase]}</span>
-          </div>
+      <section className="workspace" aria-label="Formless Labs workspace">
+        <div className="preview-stage" data-phase={runtime.phase}>
           <div className="preview-viewport">
             {runtime.previewUrl ? (
               <iframe

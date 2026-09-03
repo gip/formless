@@ -1,8 +1,8 @@
-# Formless Health
+# Formless Labs
 
-Formless Health is a preview-first demo of a browser agent inspecting, navigating, and updating a live React project. The outer host boots a WebContainer, mounts the protected guest project, and exposes nineteen WebMCP tools. The guest runs in a cross-origin iframe and reports its instrumented UI elements to the host through a versioned bridge.
+Formless Labs is a preview-first demo of a browser agent inspecting, navigating, and updating a live React project. The outer host boots a WebContainer, mounts the protected guest project, and exposes nineteen WebMCP tools. The guest runs in a cross-origin iframe and reports its instrumented UI elements to the host through a versioned bridge.
 
-The guest is **YesYou Health** — a patient-authorized health record app with two routes, a landing page and a record explorer. It is a real interface rather than a synthetic demo, which is the point: a dense clinical record with 1,400+ resources across 17 types is exactly the kind of thing that is hard to navigate by hand and worth driving by voice.
+The guest is **Formless Health** — a patient-authorized health record app with two routes, a landing page and a record explorer. It is a real interface rather than a synthetic demo, which is the point: a dense clinical record with 1,400+ resources across 17 types is exactly the kind of thing that is hard to navigate by hand and worth driving by voice.
 
 ## Run locally
 
@@ -79,7 +79,7 @@ popups need a real user gesture.
 
 ## Versions
 
-Any interface you build can be published as a named **version** that everyone who opens Formless Health
+Any interface you build can be published as a named **version** that everyone who opens Formless Labs
 sees in the header dropdown. Clicking one loads it into the live preview; `?version=<id>` opens
 it directly, which is how the macOS shell boots into a specific version:
 
@@ -129,8 +129,8 @@ applies, because guest-authored UI labels reach the agent through `get_ui_elemen
 Speech is host-owned: `speak_text` runs the browser's own synthesizer on the host page, never in the
 preview, so a published version cannot drive the speaker. Chrome refuses to speak on a page with no
 user activation and the host page rarely gets one — clicks land inside the preview iframe — so the
-header carries an **Enable voice** control that arms the synthesizer, then reports what is being
-said and stops it. The macOS shell needs no such click.
+first pointer or key event anywhere on the host page arms the synthesizer with a silent primer. The
+macOS shell needs no such gesture.
 
 Code writes are revisioned, restricted to the editable application surface, checked for instrumentation and TypeScript syntax, and rolled back on failure. Validated snapshots persist in IndexedDB. Typed messages and final speech transcripts remain session-only. Publishing and switching versions are both revision-guarded and require explicit confirmation.
 

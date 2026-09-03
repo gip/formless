@@ -125,7 +125,7 @@ describe('speech port', () => {
     const port = createSpeechPort(synth, makeUtterance);
     const pending = port.speak({ text: 'hello' });
     spoken[0].onerror?.({ error: 'not-allowed' });
-    await expect(pending).rejects.toThrow(/Enable voice/);
+    await expect(pending).rejects.toThrow(/click anywhere on the Formless Labs page/);
     expect(port.getState()).toMatchObject({ blocked: true, speaking: false });
 
     // Arming primes the engine silently and clears the blocked flag.
