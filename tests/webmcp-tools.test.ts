@@ -149,6 +149,29 @@ describe('WebMCP tool contracts', () => {
     expect(promptResult.prompt).toContain('only through apply_project_changes');
     expect(promptResult.prompt).toMatch(/devtools or CDP/);
     expect(promptResult.prompt).toMatch(/lost on reload/);
+    // Every capability the page offers is named in the prompt together with
+    // the tool that delivers it, so an agent that reads nothing else still
+    // knows it can listen, speak, highlight, read the record, and publish.
+    for (const named of [
+      'poll_user_messages',
+      'speak_text',
+      'stop_speaking',
+      'get_ui_elements',
+      'highlight_ui_elements',
+      'clear_ui_highlights',
+      'navigate_to_route',
+      'list_project_files',
+      'read_project_files',
+      'reset_project',
+      'get_health_summary',
+      'list_health_records',
+      'read_health_records',
+      'list_app_versions',
+      'publish_app_version',
+      'switch_app_version',
+    ]) {
+      expect(promptResult.prompt).toContain(named);
+    }
     const highlight = tools.find((tool) => tool.name === 'highlight_ui_elements')!;
     expect(await highlight.execute({ elementIds: ['missing'], color: '#D9FF63', restTreatment: 'dim' })).toMatchObject({ ok: false });
     expect(await highlight.execute({
