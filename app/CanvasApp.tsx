@@ -386,14 +386,24 @@ export default function CanvasApp() {
   }, [controller]);
 
   /**
-   * Reloads the built-in app, discarding whatever the working copy holds.
+   * Throws away the working copy and reloads the version it was checked out
+   * from — the starter when that is what is loaded, the published overlay
+   * otherwise.
    *
-   * `switchToVersion(null)` already rebuilds from `starterOverlay()`, so this is
-   * that call without the picker's "you are already here" short-circuit — the
-   * starter being the loaded version is the normal case for a reset, because
-   * what people want undone is usually an agent's edits to the default app.
+   * This used to reload the starter unconditionally, which made it a second,
+   * differently-worded way to click "Default app" in the picker. The two
+   * controls now answer different questions: the version list is *which app am
+   * I looking at*, and this is *undo what an agent did to it*. Reverting a
+   * published version therefore gets that version back clean rather than
+   * dumping the user on the starter.
+   *
+   * The id comes from the controller rather than from `runtime`, so the
+   * callback does not need re-creating every time the loaded version changes.
    */
-  const resetToStarter = useCallback(() => switchToVersion(null), [switchToVersion]);
+  const revertChanges = useCallback(
+    () => switchToVersion(controller.getState().versionId),
+    [controller, switchToVersion],
+  );
 
   const publishCurrent = useCallback(async (name: string, description: string): Promise<AppVersion> => {
     setVersionBusy(true);
@@ -497,7 +507,7 @@ export default function CanvasApp() {
           onSwitch={(id) => { void switchToVersion(id).catch(() => undefined); }}
           onPublish={(name, description) => { void publishCurrent(name, description).catch(() => undefined); }}
           onUnpublish={(id) => { void unpublishCurrent(id); }}
-          onReset={() => { void resetToStarter().catch(() => undefined); }}
+          onRevert={() => { void revertChanges().catch(() => undefined); }}
         />
         {untrustedVersion ? (
           // The way back after dismissing the prompt. Without it, declining once

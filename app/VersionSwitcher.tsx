@@ -23,13 +23,15 @@ export interface VersionSwitcherProps {
   onPublish: (name: string, description: string) => void;
   onUnpublish: (id: string) => void;
   /**
-   * Reloads the built-in app from source, discarding the working copy.
+   * Discards the working copy and reloads the version it came from.
    *
-   * Distinct from `onSwitch(null)`, which is a no-op once the starter is
-   * already the loaded version — that is exactly the case where someone (or an
-   * agent) has edited the default app and wants it back.
+   * Deliberately not a second route to the starter. `onSwitch` answers "which
+   * app am I looking at" and is a no-op when you pick the one already loaded;
+   * this answers "undo what an agent changed in it", which is the case the
+   * picker cannot express — and the common one, since the default app is
+   * usually what got edited.
    */
-  onReset: () => void;
+  onRevert: () => void;
 }
 
 const STARTER_LABEL = 'Default app';
@@ -50,10 +52,11 @@ export default function VersionSwitcher(props: VersionSwitcherProps) {
   const [open, setOpen] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [pendingSwitch, setPendingSwitch] = useState<{ id: string | null; label: string } | null>(null);
-  const [pendingReset, setPendingReset] = useState(false);
+  const [pendingRevert, setPendingRevert] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   const current = versions.find((version) => version.id === currentId) ?? null;
   const currentLabel = current?.name ?? STARTER_LABEL;
@@ -64,22 +67,47 @@ export default function VersionSwitcher(props: VersionSwitcherProps) {
     setOpen(false);
     setPublishing(false);
     setPendingSwitch(null);
-    setPendingReset(false);
+    setPendingRevert(false);
   }, []);
 
+  /**
+   * Dismissal. Clicking away or pressing Escape closes the menu and applies
+   * nothing: `closeMenu` only drops the transient panels, and every action —
+   * switch, publish, unpublish, revert — is behind a button in the menu itself.
+   *
+   * The third listener is the one that matters here. This page is a header over
+   * a full-bleed *cross-origin* preview iframe, so the thing a person most often
+   * clicks when they mean "never mind" is the one place that fires no event in
+   * this document: pointer events and keystrokes inside the frame belong to the
+   * frame. Focus moving into it does reach us, as a window blur with the iframe
+   * as `activeElement`, and that is the only blur worth acting on — switching
+   * apps or tabs should leave a half-typed publish form exactly where it was.
+   */
   useEffect(() => {
     if (!open) return;
-    function onPointerDown(event: MouseEvent) {
+    function onPointerDown(event: PointerEvent) {
       if (!rootRef.current?.contains(event.target as Node)) closeMenu();
     }
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') closeMenu();
+      if (event.key !== 'Escape') return;
+      closeMenu();
+      // Escape is a keyboard gesture, so put the caret back somewhere useful:
+      // the panel holding focus is about to unmount, which would otherwise drop
+      // focus to <body> and lose the user's place in the header.
+      triggerRef.current?.focus();
     }
-    document.addEventListener('mousedown', onPointerDown);
+    function onWindowBlur() {
+      if (document.activeElement instanceof HTMLIFrameElement) closeMenu();
+    }
+    // `pointerdown`, not `mousedown`: same moment for a mouse, but it also
+    // covers pen and touch without waiting for emulated mouse events.
+    document.addEventListener('pointerdown', onPointerDown);
     document.addEventListener('keydown', onKeyDown);
+    window.addEventListener('blur', onWindowBlur);
     return () => {
-      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('pointerdown', onPointerDown);
       document.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('blur', onWindowBlur);
     };
   }, [closeMenu, open]);
 
@@ -111,6 +139,7 @@ export default function VersionSwitcher(props: VersionSwitcherProps) {
       <button
         type="button"
         className="version-trigger"
+        ref={triggerRef}
         onClick={() => (open ? closeMenu() : setOpen(true))}
         disabled={busy}
         aria-expanded={open}
@@ -126,18 +155,18 @@ export default function VersionSwitcher(props: VersionSwitcherProps) {
         <div className="version-menu" role="menu">
           {error && <p className="version-error">{error}</p>}
 
-          {pendingReset ? (
+          {pendingRevert ? (
             <div className="version-confirm">
               <p>
-                This throws away the working copy and reloads the built-in
-                {' '}<strong>Formless Health</strong> app from source. Anything you or an agent
-                changed and did not publish is lost.
+                This discards everything you or an agent changed in{' '}
+                <strong>{currentLabel}</strong> since it was loaded, and loads a clean copy of it.
+                Nothing you have published is affected.
               </p>
               <div className="version-confirm-actions">
-                <button type="button" className="danger" onClick={() => { props.onReset(); closeMenu(); }}>
-                  Reset to the default app
+                <button type="button" className="danger" onClick={() => { props.onRevert(); closeMenu(); }}>
+                  Revert changes
                 </button>
-                <button type="button" onClick={() => setPendingReset(false)}>Cancel</button>
+                <button type="button" onClick={() => setPendingRevert(false)}>Cancel</button>
               </div>
             </div>
           ) : pendingSwitch ? (
@@ -247,16 +276,21 @@ export default function VersionSwitcher(props: VersionSwitcherProps) {
               <button type="button" className="version-publish-open" onClick={() => setPublishing(true)} disabled={busy || Boolean(error)}>
                 + Publish current…
               </button>
+              {/* Not "reset to the default app": that read as a duplicate of the
+                  Default app row above it, and did something different only in
+                  the one case the row cannot express. This is scoped to the
+                  loaded version and to unpublished edits, so it is dead unless
+                  there is something to undo. */}
               <button
                 type="button"
-                className="version-publish-open version-reset"
-                onClick={() => setPendingReset(true)}
-                disabled={busy || (currentId === null && !dirty)}
-                title={currentId === null && !dirty
-                  ? 'The default app is already loaded, unchanged.'
-                  : 'Discard the working copy and reload the built-in app.'}
+                className="version-publish-open version-revert"
+                onClick={() => setPendingRevert(true)}
+                disabled={busy || !dirty}
+                title={dirty
+                  ? `Discard your unpublished edits and reload ${currentLabel}.`
+                  : 'No unpublished changes to revert.'}
               >
-                <span aria-hidden="true">↺</span> Reset to the default app
+                <span aria-hidden="true">↺</span> Revert unpublished changes
               </button>
             </>
           )}
