@@ -48,3 +48,6 @@ next-env.d.ts
 /outputs/
 /work/
 .gstack/
+
+# but the template is checked in
+!.env.example

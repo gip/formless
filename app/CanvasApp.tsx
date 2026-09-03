@@ -2,8 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import VersionSwitcher from './VersionSwitcher';
+import PassphrasePrompt from './PassphrasePrompt';
 import { isTrustedPreviewMessage } from '@/lib/bridge';
-import type { AppVersion, FileMap, UiElementDescriptor } from '@/lib/canvas-types';
+import type { AppVersion, FileMap, RouteDescriptor, UiElementDescriptor } from '@/lib/canvas-types';
+import { computeGrant, respondToCapability, type CapabilityDeps } from '@/lib/host-capabilities';
+import { guestStatePort } from '@/lib/guest-state';
+import { createHealthPort, epicClientId, epicScope } from '@/lib/health/port';
+import { connectAndImport, type ImportProgressReport } from '@/lib/health/import';
 import { getProjectController, starterOverlay, type ControllerState } from '@/lib/project-controller';
 import { overlayHash } from '@/lib/project-policy';
 import { starterPackageHash } from '@/lib/runtime-snapshot';
@@ -15,7 +20,16 @@ import {
   unpublishVersion,
   writeVersionParam,
 } from '@/lib/version-client';
-import { isNativeWebMcp, messageQueue, setElements, setPreviewTarget, setVersionOperations, subscribeNativeWebMcp } from '@/lib/webmcp-runtime';
+import {
+  isNativeWebMcp,
+  messageQueue,
+  sendPreviewCommand,
+  setElements,
+  setPreviewTarget,
+  setRoutes,
+  setVersionOperations,
+  subscribeNativeWebMcp,
+} from '@/lib/webmcp-runtime';
 
 const initialControllerState: ControllerState = {
   phase: 'idle',
@@ -68,6 +82,73 @@ export default function CanvasApp() {
     try { return new URL(runtime.previewUrl).origin; } catch { return null; }
   }, [runtime.previewUrl]);
 
+  /**
+   * Routes are tagged with the app that declared them. Deriving the visible
+   * table from that tag means a version switch drops the old routes without an
+   * effect that resets state — `navigate_to_route` can never offer a route
+   * belonging to the app the user just left.
+   */
+  const [declaredRoutes, setDeclaredRoutes] = useState<{ key: string; routes: RouteDescriptor[] }>({
+    key: '',
+    routes: [],
+  });
+  const [passphraseRequest, setPassphraseRequest] = useState<{
+    mode: 'create' | 'unlock';
+    settle: (value: string | null) => void;
+  } | null>(null);
+  const [importProgress, setImportProgress] = useState<ImportProgressReport>();
+
+  /**
+   * The health port owns the record and the derived key, so it is created once
+   * and outlives version switches — the record belongs to the user, not to
+   * whichever app is loaded.
+   */
+  const health = useMemo(() => createHealthPort({
+    requestPassphrase: (mode) =>
+      new Promise<string | null>((settle) => setPassphraseRequest({ mode, settle })),
+    runConnect: async ({ providerId, includeAttachments, passphrase }) => {
+      const clientId = epicClientId(providerId);
+      if (!clientId) throw new Error('VITE_EPIC_CLIENT_ID is not set.');
+      return connectAndImport({
+        providerId,
+        includeAttachments,
+        passphrase,
+        clientId,
+        ...(epicScope() ? { scope: epicScope()! } : {}),
+        onProgress: (progress) => setImportProgress(progress),
+      });
+    },
+    emit: (event, payload) => {
+      try {
+        sendPreviewCommand('host-event', { event, payload });
+      } catch {
+        // The preview may not be mounted yet; the guest re-reads on mount anyway.
+      }
+    },
+  }), []);
+
+  /**
+   * The grant is recomputed whenever the loaded version changes, and the message
+   * listener below depends on it. Reading it through a ref instead would leave a
+   * window after a switch where a `host-request` resolved against the previous
+   * app's privileges — briefly handing a stranger's version the access a
+   * version you published had.
+   */
+  const grant = useMemo(() => computeGrant(runtime.versionId, versions), [runtime.versionId, versions]);
+
+  const capabilities = useMemo<CapabilityDeps>(
+    () => ({ state: guestStatePort, grant: () => grant, health }),
+    [grant, health],
+  );
+
+  const previewIdentity = `${runtime.versionId ?? 'starter'}|${runtime.previewUrl ?? ''}`;
+  const routes = useMemo(
+    () => (declaredRoutes.key === previewIdentity ? declaredRoutes.routes : []),
+    [declaredRoutes, previewIdentity],
+  );
+
+  useEffect(() => { setRoutes(routes); }, [routes]);
+
   useEffect(() => controller.subscribe(setRuntime), [controller]);
 
   useEffect(() => {
@@ -86,10 +167,28 @@ export default function CanvasApp() {
           messageQueue.add(payload.text, payload.source);
         } catch { /* Empty preview messages are ignored. */ }
       }
+      if (event.data.type === 'manifest') {
+        const declared = Array.isArray(payload?.routes) ? (payload.routes as RouteDescriptor[]) : [];
+        const clean = declared.filter(
+          (route) => route && typeof route.path === 'string' && typeof route.title === 'string',
+        );
+        setDeclaredRoutes({ key: previewIdentity, routes: clean });
+      }
+      if (event.data.type === 'host-request' && typeof payload?.id === 'string' && typeof payload?.method === 'string') {
+        const { id, method } = payload as { id: string; method: string };
+        const params = (payload.params ?? {}) as Record<string, unknown>;
+        void respondToCapability(capabilities, id, method, params).then((response) => {
+          try {
+            sendPreviewCommand('host-response', response as unknown as Record<string, unknown>);
+          } catch {
+            // The preview went away mid-request; the guest's own timeout covers it.
+          }
+        });
+      }
     }
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [previewOrigin]);
+  }, [previewOrigin, capabilities, previewIdentity]);
 
   // Tools are already registered (see lib/webmcp-runtime). All this does is
   // hand the runtime the live preview window once it exists.
@@ -250,16 +349,35 @@ export default function CanvasApp() {
           onPublish={(name, description) => { void publishCurrent(name, description).catch(() => undefined); }}
           onUnpublish={(id) => { void unpublishCurrent(id); }}
         />
+        {importProgress && importProgress.completedSearches < importProgress.totalSearches ? (
+          <div className="import-pill" role="status" aria-live="polite">
+            Importing {importProgress.completedSearches}/{importProgress.totalSearches} ·{' '}
+            {importProgress.resourceCount} records
+          </div>
+        ) : null}
         <div className={`connection-pill ${nativeWebMcp ? 'online' : ''}`}>
           <span /> {nativeWebMcp ? 'Native WebMCP connected' : 'Local test bridge only'}
         </div>
       </header>
+
+      {passphraseRequest ? (
+        <PassphrasePrompt
+          mode={passphraseRequest.mode}
+          onSubmit={(value) => { passphraseRequest.settle(value); setPassphraseRequest(null); }}
+          onCancel={() => { passphraseRequest.settle(null); setPassphraseRequest(null); }}
+        />
+      ) : null}
 
       <section className="workspace" aria-label="WebAlly workspace">
         <div className="preview-stage">
           <div className="preview-toolbar">
             <span className="browser-dot red" /><span className="browser-dot amber" /><span className="browser-dot green" />
             <span className="preview-label">Live WebContainer preview</span>
+            {routes.length ? (
+              <span className="preview-routes" title={routes.map((route) => route.path).join(' ')}>
+                {routes.length} route{routes.length === 1 ? '' : 's'}
+              </span>
+            ) : null}
             <span className={`preview-status ${runtime.phase}`}><i />{phaseLabels[runtime.phase]}</span>
           </div>
           <div className="preview-viewport">

@@ -38,6 +38,7 @@ describe('WebMCP tool contracts', () => {
       project: project as never,
       messages: new UserMessageQueue(),
       getElements: () => [{ id: 'send', label: 'Send', description: '', role: 'button', visible: true, enabled: true, kind: 'button' }],
+      getRoutes: () => [{ path: '/', title: 'Home', description: 'Landing page.' }, { path: '/explore', title: 'Explore', description: 'Record explorer.' }],
       sendPreviewCommand,
       versions: versionStub(),
     });
@@ -45,7 +46,7 @@ describe('WebMCP tool contracts', () => {
       'get_website_summary',
       'get_website_prompt',
       'list_project_files', 'read_project_files', 'apply_project_changes', 'reset_project',
-      'get_ui_elements', 'highlight_ui_elements', 'clear_ui_highlights', 'poll_user_messages',
+      'get_ui_elements', 'navigate_to_route', 'highlight_ui_elements', 'clear_ui_highlights', 'poll_user_messages',
       'list_app_versions', 'publish_app_version', 'switch_app_version',
     ]);
     const summary = tools.find((tool) => tool.name === 'get_website_summary')!;
@@ -105,6 +106,7 @@ describe('WebMCP tool contracts', () => {
       project: project as never,
       messages: new UserMessageQueue(),
       getElements: () => [],
+      getRoutes: () => [],
       sendPreviewCommand: vi.fn(),
       versions,
     });
@@ -140,6 +142,58 @@ describe('WebMCP tool contracts', () => {
       ok: true,
       revision: 3,
       version: publishedVersion,
+    });
+  });
+});
+
+describe('navigate_to_route', () => {
+  function toolsWithRoutes(routes: { path: string; title: string; description: string }[]) {
+    const sendPreviewCommand = vi.fn();
+    const tools = createCanvasTools({
+      project: {} as never,
+      messages: new UserMessageQueue(),
+      getElements: () => [],
+      getRoutes: () => routes,
+      sendPreviewCommand,
+      versions: versionStub(),
+    });
+    return { navigate: tools.find((tool) => tool.name === 'navigate_to_route')!, sendPreviewCommand };
+  }
+
+  const routes = [
+    { path: '/', title: 'Home', description: 'Landing page.' },
+    { path: '/explore', title: 'Explore', description: 'Record explorer.' },
+  ];
+
+  it('lists the declared routes when called with no path', async () => {
+    const { navigate, sendPreviewCommand } = toolsWithRoutes(routes);
+    expect(await navigate.execute({})).toEqual({ ok: true, routes });
+    expect(sendPreviewCommand).not.toHaveBeenCalled();
+  });
+
+  it('posts a navigate event for a declared route', async () => {
+    const { navigate, sendPreviewCommand } = toolsWithRoutes(routes);
+    expect(await navigate.execute({ path: '/explore' })).toEqual({ ok: true, route: routes[1] });
+    expect(sendPreviewCommand).toHaveBeenCalledWith('host-event', {
+      event: 'navigate',
+      payload: { path: '/explore' },
+    });
+  });
+
+  it('refuses a route the app never declared', async () => {
+    const { navigate, sendPreviewCommand } = toolsWithRoutes(routes);
+    expect(await navigate.execute({ path: '/admin' })).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('Unknown route'),
+    });
+    expect(sendPreviewCommand).not.toHaveBeenCalled();
+  });
+
+  it('explains itself when the app declared no routes at all', async () => {
+    const { navigate } = toolsWithRoutes([]);
+    expect(await navigate.execute({ path: '/explore' })).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('has not declared any routes'),
     });
   });
 });
