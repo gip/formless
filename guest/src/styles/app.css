@@ -352,6 +352,9 @@ h1 { max-width: 760px; margin: 0; font-family: var(--serif); font-size: var(--te
    with `margin: 0 auto`, and auto side margins on a flex item override stretch,
    collapsing each one to shrink-to-fit. */
 .app-shell { min-height: 100vh; padding-bottom: 96px; }
+/* The composer is fixed, so the shell reserves its height. Open, the starter
+   prompt roughly triples it, and the bottom of the page would sit under it. */
+.app-shell:has(.starter-prompt) { padding-bottom: 320px; }
 .agent-composer { position: fixed; left: 50%; bottom: 18px; z-index: 40; width: min(760px, calc(100vw - 32px)); transform: translateX(-50%); padding: 12px 14px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-lg); background: rgba(255,255,255,.94); backdrop-filter: blur(8px); box-shadow: 0 12px 40px rgba(16,24,19,.14); }
 .prompt-form { display: flex; align-items: center; gap: 9px; }
 .prompt-form input { flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--paper); color: var(--ink); font: inherit; font-size: 14px; }
@@ -368,6 +371,23 @@ h1 { max-width: 760px; margin: 0; font-family: var(--serif); font-size: var(--te
 .composer-headline { margin: 0 0 6px; font-size: var(--text-sm); font-weight: 700; letter-spacing: -.01em; }
 .composer-body { margin: 0; color: var(--muted); font-size: var(--text-sm); line-height: 1.55; }
 .composer-body strong { color: var(--ink); font-weight: 700; }
+
+/* Starter prompt. Folds to the single `.starter-reopen` chip on the notice row
+   once the user is done with it, so the composer keeps its full height. */
+.starter-prompt { margin: 0 0 10px; padding: 0 0 10px; border-bottom: 1px solid var(--line); }
+.starter-prompt .composer-headline { margin-bottom: 7px; }
+.starter-prompt-text { max-height: 220px; margin: 0; padding: 10px 12px; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--paper); color: var(--ink); font-family: var(--mono); font-size: var(--text-xs); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.starter-prompt-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 9px; }
+.starter-prompt-actions button { min-height: 34px; padding: 0 13px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--card); color: var(--ink); font: inherit; font-size: var(--text-sm); font-weight: 600; cursor: pointer; transition: background .15s ease, border-color .15s ease, color .15s ease; }
+.starter-prompt-actions .starter-copy { border-color: var(--accent); background: var(--accent); color: #fff; }
+.starter-prompt-actions .starter-copy:hover { background: var(--accent-strong); }
+.starter-prompt-actions .starter-done:hover { border-color: var(--ink); }
+.starter-copy-manual { margin: 0; color: var(--muted); font-family: var(--mono); font-size: var(--text-xs); }
+.composer-footer { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.composer-footer .composer-notice { flex: 1 1 auto; min-width: 0; }
+.starter-reopen { flex: 0 0 auto; margin-top: 8px; padding: 0; border: 0; background: none; color: var(--muted); font-family: var(--mono); font-size: var(--text-xs); letter-spacing: .01em; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.starter-reopen:hover { color: var(--ink); }
+.agent-composer.disconnected .starter-reopen { display: block; }
 
 .record-card-cta { width: 100%; margin-top: 20px; }
 .connect-panel { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }

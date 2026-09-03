@@ -92,10 +92,16 @@ export default function CanvasApp() {
    * carries `microphone` — fine when the code was yours, less obviously so once
    * anyone can publish. Your own versions and the starter keep speech input;
    * a version you did not publish does not get the microphone.
+   *
+   * `clipboard-write` is not gated that way. The async clipboard API is blocked
+   * in a cross-origin frame unless the embedder delegates it, which is why the
+   * guest's own copy buttons silently fell back to selecting their text; it is
+   * write-only, needs a user gesture, and cannot read what is already on the
+   * clipboard, so every version gets it.
    */
   const previewAllow = useMemo(() => {
     const version = versions.find((entry) => entry.id === runtime.versionId);
-    const base = 'cross-origin-isolated; tools';
+    const base = 'clipboard-write; cross-origin-isolated; tools';
     return version && !version.mine ? base : `microphone; ${base}`;
   }, [runtime.versionId, versions]);
 
@@ -315,6 +321,18 @@ export default function CanvasApp() {
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
   }, [previewOrigin, capabilities, previewIdentity, nativeWebMcp]);
+
+  /**
+   * The `manifest` handler above answers `mcp.status` for the usual order: a
+   * bridge is already attached when the guest mounts. This is the other order.
+   * A bridge that attaches late (see the watcher in lib/webmcp-runtime) flips
+   * the registration after the guest has already been told no agent is there,
+   * and its composer would stay in that state until the next remount.
+   */
+  useEffect(() => {
+    if (!nativeWebMcp) return;
+    emitHostEvent('mcp.status', { connected: true });
+  }, [nativeWebMcp]);
 
   /**
    * Tools are already registered (see lib/webmcp-runtime). All this does is

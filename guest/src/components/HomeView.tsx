@@ -56,14 +56,12 @@ export default function HomeView() {
             description="Explains what the service does with the patient's health data and what choices they will have."
           >
             <p className="lede">
-              Formless Health helps patients understand the actions taken and documented as part of their care.
-              Connect MyChart, authorize read-only access, and receive a private export of the health data
-              made available by your provider, encrypted on your device with a passphrase you choose.
-              As the platform grows, patients will also be able to choose whether to contribute a
-              de-identified copy of their data to a shared dataset, whether it may be used to train
-              an IBD action model, and—later—whether their feedback may help improve that model
-              through reinforcement learning. These choices will be optional and separate from
-              accessing or keeping their own record.
+              Formless Health helps patients understand what their care team recorded about them.
+              Connect MyChart, authorize read-only access, and receive a private export of the health
+              data your provider makes available, encrypted on your device with a passphrase you choose.
+              Later, you will also be able to choose whether to contribute a de-identified copy of your
+              record to a shared dataset. That choice will be optional, and separate from getting or
+              keeping your own record.
             </p>
           </AgentTarget>
 

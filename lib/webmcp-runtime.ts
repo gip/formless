@@ -119,23 +119,93 @@ export const canvasTools = createCanvasTools({
 });
 
 /**
- * Registered once, at import. Never disposed: the tools are valid for the life
- * of the document, and tearing them down on a React lifecycle is what left a
- * window where the tool list was empty.
+ * Registration is one-shot *per success*, never disposed: the tools are valid
+ * for the life of the document, and tearing them down on a React lifecycle is
+ * what left a window where the tool list was empty.
+ *
+ * It is not one-shot per *attempt*, though. `document.modelContext` is put
+ * there by something outside the page — the macOS shell's polyfill at document
+ * start, or a browser extension's bridge — and an extension may not attach
+ * until the user grants the origin, or until the tab is first activated. That
+ * lands after this module evaluates, and a single attempt at import silently
+ * registers nothing: `native` stays false for the life of the page, the guest
+ * composer is told over `mcp.status` that no agent is attached, and only a full
+ * reload recovers. So a failed attempt starts a watcher and retries.
  */
-const native = typeof document === 'undefined' ? false : registerNativeTools(canvasTools).native;
+let native = false;
+const nativeListeners = new Set<() => void>();
+
+/** Idempotent: the first success wins and every later call is a no-op, so the
+ *  tools are registered exactly once however many times the watcher fires. */
+function attemptRegistration(): boolean {
+  if (native) return true;
+  if (!registerNativeTools(canvasTools).native) return false;
+  native = true;
+  for (const listener of [...nativeListeners]) listener();
+  return true;
+}
+
+/**
+ * Polls for a late `document.modelContext`, fast at first for the ordinary
+ * injection race, then slowly. Tab activation and window focus are when an
+ * extension typically attaches, so each one retries immediately and buys
+ * another full budget — an origin granted an hour into the session still gets
+ * picked up, without leaving a timer running forever on a plain browser that
+ * is never going to have WebMCP at all.
+ */
+function watchForModelContext(): void {
+  const FAST_INTERVAL_MS = 200;
+  const SLOW_INTERVAL_MS = 2_000;
+  const FAST_PHASE_MS = 10_000;
+  const BUDGET_MS = 60_000;
+
+  let timer: number | null = null;
+  let startedAt = Date.now();
+
+  const stop = () => {
+    if (timer !== null) window.clearTimeout(timer);
+    timer = null;
+    window.removeEventListener('focus', wake);
+    document.removeEventListener('visibilitychange', wake);
+    window.removeEventListener('pageshow', wake);
+  };
+
+  const tick = () => {
+    timer = null;
+    if (attemptRegistration()) return stop();
+    const elapsed = Date.now() - startedAt;
+    if (elapsed >= BUDGET_MS) return; // Listeners stay; they are free and can restart it.
+    timer = window.setTimeout(tick, elapsed < FAST_PHASE_MS ? FAST_INTERVAL_MS : SLOW_INTERVAL_MS);
+  };
+
+  function wake() {
+    if (native) return stop();
+    startedAt = Date.now();
+    if (timer !== null) window.clearTimeout(timer);
+    timer = window.setTimeout(tick, 0);
+  }
+
+  window.addEventListener('focus', wake);
+  document.addEventListener('visibilitychange', wake);
+  window.addEventListener('pageshow', wake);
+  timer = window.setTimeout(tick, FAST_INTERVAL_MS);
+}
+
+if (typeof document !== 'undefined' && !attemptRegistration()) watchForModelContext();
 
 /**
  * Whether the tools reached a real `document.modelContext`. Read through
  * `useSyncExternalStore` rather than rendered directly: this is false during
  * SSR and true in the browser, which is a hydration mismatch if a component
- * reads it at first render.
+ * reads it at first render — and it can now flip from false to true long after
+ * hydration, when a bridge attaches late.
  */
 export function isNativeWebMcp(): boolean {
   return native;
 }
 
-/** The value never changes after import, so there is nothing to subscribe to. */
-export function subscribeNativeWebMcp(): () => void {
-  return () => undefined;
+/** Fires once, if and when a late-arriving bridge takes the registration. */
+export function subscribeNativeWebMcp(listener: () => void): () => void {
+  nativeListeners.add(listener);
+  return () => nativeListeners.delete(listener);
 }
