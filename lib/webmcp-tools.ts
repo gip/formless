@@ -1,7 +1,7 @@
 'use client';
 
 import type { ProjectController } from './project-controller';
-import type { AppVersion, ToolDefinition, UiElementDescriptor } from './canvas-types';
+import type { AppVersion, RouteDescriptor, ToolDefinition, UiElementDescriptor } from './canvas-types';
 import type { UserMessageQueue } from './message-queue';
 
 /**
@@ -19,7 +19,9 @@ interface ToolEnvironment {
   project: ProjectController;
   messages: UserMessageQueue;
   getElements: () => UiElementDescriptor[];
-  sendPreviewCommand: (type: 'highlight' | 'clear-highlight', payload?: Record<string, unknown>) => void;
+  /** Routes the guest declared on mount. Empty when it declared none. */
+  getRoutes: () => RouteDescriptor[];
+  sendPreviewCommand: (type: 'highlight' | 'clear-highlight' | 'host-event', payload?: Record<string, unknown>) => void;
   versions: VersionOperations;
 }
 
@@ -154,6 +156,33 @@ export function createCanvasTools(environment: ToolEnvironment): ToolDefinition[
       async ({ baseRevision, confirm }) => environment.project.reset(baseRevision, confirm),
     ),
     tool('get_ui_elements', 'Get UI elements', 'Returns the stable IDs and current state of instrumented elements in the live preview.', true, emptySchema, async () => ({ ok: true, generation: Date.now(), elements: environment.getElements() })),
+    tool(
+      'navigate_to_route',
+      'Navigate to route',
+      'Moves the live preview to one of the routes the app declares. Prefer this over clicking a link: it works even when the navigation control is off-screen, and it cannot miss. Call with no path to list the available routes.',
+      false,
+      {
+        type: 'object',
+        properties: { path: { type: 'string' } },
+        additionalProperties: false,
+      },
+      async ({ path }) => {
+        const routes = environment.getRoutes();
+        if (path === undefined) return { ok: true, routes };
+        if (typeof path !== 'string') throw new Error('path must be a string.');
+        if (!routes.length) {
+          throw new Error('The app has not declared any routes, so it cannot be navigated this way.');
+        }
+        // Only a declared route may be requested. The guest owns its own route
+        // table, so this can never navigate the preview somewhere it cannot render.
+        const match = routes.find((route) => route.path === path);
+        if (!match) {
+          throw new Error(`Unknown route: ${path}. Available: ${routes.map((route) => route.path).join(', ')}`);
+        }
+        environment.sendPreviewCommand('host-event', { event: 'navigate', payload: { path: match.path } });
+        return { ok: true, route: match };
+      },
+    ),
     tool(
       'highlight_ui_elements',
       'Highlight UI elements',

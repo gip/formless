@@ -1,6 +1,6 @@
 'use client';
 
-import { BRIDGE_PROTOCOL, type UiElementDescriptor } from './canvas-types';
+import { BRIDGE_PROTOCOL, type RouteDescriptor, type UiElementDescriptor } from './canvas-types';
 import { UserMessageQueue } from './message-queue';
 import { getProjectController } from './project-controller';
 import { createCanvasTools, registerNativeTools, type VersionOperations } from './webmcp-tools';
@@ -22,6 +22,8 @@ export const messageQueue = new UserMessageQueue(50);
 let previewTarget: { window: Window; origin: string } | null = null;
 let elements: UiElementDescriptor[] = [];
 let versionOperations: VersionOperations | null = null;
+/** Routes the guest declared via `manifest`. Empty until it does — never guessed. */
+let routes: RouteDescriptor[] = [];
 
 export function setPreviewTarget(target: { window: Window; origin: string } | null): void {
   previewTarget = target;
@@ -35,12 +37,18 @@ export function setVersionOperations(operations: VersionOperations | null): void
   versionOperations = operations;
 }
 
+export function setRoutes(next: RouteDescriptor[]): void {
+  routes = next;
+}
+
 function versions(): VersionOperations {
   if (!versionOperations) throw new Error('Version controls are not ready yet.');
   return versionOperations;
 }
 
-function sendPreviewCommand(type: 'highlight' | 'clear-highlight', payload: Record<string, unknown> = {}): void {
+export type PreviewCommand = 'highlight' | 'clear-highlight' | 'host-response' | 'host-event';
+
+export function sendPreviewCommand(type: PreviewCommand, payload: Record<string, unknown> = {}): void {
   if (!previewTarget) throw new Error('The live preview is not ready.');
   previewTarget.window.postMessage({ protocol: BRIDGE_PROTOCOL, type, payload }, previewTarget.origin);
 }
@@ -49,6 +57,7 @@ export const canvasTools = createCanvasTools({
   project: getProjectController(),
   messages: messageQueue,
   getElements: () => elements,
+  getRoutes: () => routes,
   sendPreviewCommand,
   versions: {
     list: () => versions().list(),

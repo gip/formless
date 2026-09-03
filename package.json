@@ -10,11 +10,14 @@
     "build": "vinext build",
     "start": "vinext start",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
+    "typecheck": "tsc --noEmit",
+    "typecheck:guest": "tsc --noEmit -p guest/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@noble/hashes": "^2.4.0",
     "@webcontainer/api": "^1.6.4",
     "next": "16.2.6",
     "react": "19.2.6",
@@ -35,6 +38,7 @@
     "@vitejs/plugin-rsc": "0.5.26",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
+    "fake-indexeddb": "^6.2.5",
     "jsdom": "^28.0.0",
     "react-server-dom-webpack": "19.2.6",
     "tailwindcss": "4.2.1",

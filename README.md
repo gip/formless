@@ -1,6 +1,8 @@
 # WebAlly
 
-WebAlly is a preview-first demo of a browser agent inspecting and updating a live React project. The outer host boots a WebContainer, mounts the protected starter project, and exposes thirteen WebMCP tools. The editable project runs in a cross-origin iframe and reports its instrumented UI elements to the host through a versioned bridge.
+WebAlly is a preview-first demo of a browser agent inspecting, navigating, and updating a live React project. The outer host boots a WebContainer, mounts the protected guest project, and exposes fourteen WebMCP tools. The guest runs in a cross-origin iframe and reports its instrumented UI elements to the host through a versioned bridge.
+
+The guest is **YesYou Health** — a patient-authorized health record app with two routes, a landing page and a record explorer. It is a real interface rather than a synthetic demo, which is the point: a dense clinical record with 1,400+ resources across 17 types is exactly the kind of thing that is hard to navigate by hand and worth driving by voice.
 
 ## Run locally
 
@@ -10,6 +12,57 @@ npm run dev
 ```
 
 Open `http://localhost:3000` in a Chromium browser. WebContainers require cross-origin isolation; the development server and proxy both add the required COOP/COEP headers. The page is the live preview plus a header: a version picker and the WebMCP connection state. Tools are exposed to the browser agent only - there is no in-page tool console, so a browser without native WebMCP can view the preview and switch versions but cannot invoke tools.
+
+## The guest app
+
+Guest source lives in `guest/` as ordinary files and is inlined into a `FileMap`
+at build time. Edit it like any other project; `pnpm typecheck:guest` checks it,
+and `pnpm test` runs the instrumentation audit over it.
+
+Everything interactive must go through `AgentTarget` / `AgentButton` /
+`AgentInput` / `AgentLink` from `src/agent/bridge` — a raw `<button>` or `<a>` in
+guest JSX fails the audit and rolls the whole change back.
+
+### Host capabilities
+
+The guest holds no credentials. It declares its routes on mount and asks the
+host for anything privileged over the bridge:
+
+- `state.*` — per-version key/value storage on the host origin. The preview gets
+  a fresh origin on every boot, so guest-side storage would not survive a reload.
+- `auth.*` / `record.*` — sign-in and the health record.
+
+Versions **you** published (and the starter) get all of it. A version published
+by someone else gets namespaced state and is refused the record — the same rule
+the microphone already follows.
+
+## Connecting a real record
+
+```bash
+cp .env.example .env.local     # then fill in VITE_EPIC_CLIENT_ID
+pnpm dev                       # Vite reads env only at startup — restart to pick it up
+```
+
+Register `<origin>/health/callback` as the redirect URI in your Epic app
+(`http://localhost:3000/health/callback` for local development). Epic issues
+separate non-production and production client ids for the same app, so
+`VITE_EPIC_SANDBOX_CLIENT_ID` overrides the id for the Epic Sandbox provider.
+
+These are `VITE_`-prefixed because they are inlined at **build** time, so a
+deployed build needs them set when `pnpm build` runs — not as a Worker secret
+afterwards. That is safe: a PKCE client id is public by design and there is no
+client secret in this flow. The host runs the PKCE flow on its own stable
+origin, because the WebContainer's origin is ephemeral and can never be
+registered; the guest only ever receives a decrypted record. The record is
+encrypted at rest with Argon2id + AES-GCM, and the key never leaves the host page.
+
+Without that variable everything still works: the connect panel says it is not
+configured and the explorer shows a de-identified sample record.
+
+Two known limits. Sign-in uses a popup and `BroadcastChannel` (the page's
+`Cross-Origin-Opener-Policy` severs `window.opener`), so it does **not** work in
+the macOS shell, which cannot open popups. And an agent cannot start a sign-in:
+popups need a real user gesture.
 
 ## Versions
 
@@ -47,6 +100,7 @@ publish runs without microphone access in the preview frame.
 - `list_app_versions`
 - `publish_app_version`
 - `switch_app_version`
+- `navigate_to_route` (moves the preview between the routes the guest declares)
 
 Code writes are revisioned, restricted to the editable application surface, checked for instrumentation and TypeScript syntax, and rolled back on failure. Validated snapshots persist in IndexedDB. Typed messages and final speech transcripts remain session-only. Publishing and switching versions are both revision-guarded and require explicit confirmation.
 

@@ -47,7 +47,7 @@ test('exposes the canvas and registers its tools natively', async ({ page }) => 
   expect(names).toEqual([
     'get_website_summary', 'get_website_prompt',
     'list_project_files', 'read_project_files', 'apply_project_changes', 'reset_project',
-    'get_ui_elements', 'highlight_ui_elements', 'clear_ui_highlights', 'poll_user_messages',
+    'get_ui_elements', 'navigate_to_route', 'highlight_ui_elements', 'clear_ui_highlights', 'poll_user_messages',
     'list_app_versions', 'publish_app_version', 'switch_app_version',
   ]);
 });
@@ -67,12 +67,12 @@ test('registers each tool once and keeps it registered', async ({ page }) => {
   await page.goto('/');
 
   const count = () => page.evaluate(() => (window as unknown as { __tools: unknown[] }).__tools.length);
-  await expect.poll(count, { timeout: 10_000 }).toBe(13);
+  await expect.poll(count, { timeout: 10_000 }).toBe(14);
   await expect(page.getByText('Native WebMCP connected')).toBeVisible();
 
   await page.locator('.preview-status.ready').waitFor({ timeout: 90_000 });
   await page.waitForTimeout(1_500);
-  expect(await count()).toBe(13);
+  expect(await count()).toBe(14);
 });
 
 test('queues a final mocked speech transcript from the editable preview', async ({ page }) => {
@@ -136,4 +136,35 @@ test('dims the whole preview while a timed highlight blinks between two colors',
     intervals: [25],
   }).toBe('#FF5A6F');
   await expect(overlay).toHaveCount(0, { timeout: 2_000 });
+});
+
+test('declares its routes and lets the agent navigate to the record explorer', async ({ page }) => {
+  await installModelContext(page);
+  await page.goto('/');
+  const preview = page.frameLocator('iframe[title="Editable WebMCP application preview"]');
+  await expect(preview.getByRole('button', { name: 'Send to agent' })).toBeVisible({ timeout: 90_000 });
+
+  // The guest declares its own routes; the host never guesses them.
+  await expect.poll(async () => {
+    const result = await callTool(page, 'navigate_to_route') as { routes?: { path: string }[] };
+    return (result.routes ?? []).map((route) => route.path);
+  }, { timeout: 10_000 }).toEqual(['/', '/explore']);
+
+  // Navigating by tool rather than by click is the point: a person driving this
+  // by voice should not have to locate and hit a link.
+  expect(await callTool(page, 'navigate_to_route', { path: '/explore' }))
+    .toMatchObject({ ok: true, route: { path: '/explore' } });
+
+  // The record itself comes from the host over the capability bridge.
+  await expect(preview.getByRole('heading', { name: 'John Smith', level: 1 })).toBeVisible({ timeout: 30_000 });
+  await expect(preview.getByText('Data available')).toBeVisible();
+
+  // Instrumented explorer controls reach the agent as targets it can highlight.
+  const elements = await callTool(page, 'get_ui_elements') as { elements: { id: string }[] };
+  const ids = elements.elements.map((element) => element.id);
+  expect(ids).toContain('view-raw-json');
+  expect(ids.some((id) => id.startsWith('resource-group-'))).toBe(true);
+
+  expect(await callTool(page, 'navigate_to_route', { path: '/nowhere' }))
+    .toMatchObject({ ok: false, error: expect.stringContaining('Unknown route') });
 });

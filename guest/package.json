@@ -1,0 +1,25 @@
+{
+  "name": "webmcp-canvas-preview",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "node node_modules/vite/bin/vite.js --host 0.0.0.0",
+    "build": "node node_modules/vite/bin/vite.js build",
+    "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
+    "audit-ui": "node scripts/audit-ui.mjs",
+    "validate": "npm run audit-ui && node scripts/validate-syntax.mjs"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "6.1.0",
+    "vite": "8.2.2",
+    "@rolldown/binding-wasm32-wasi": "1.2.6",
+    "typescript": "5.9.3",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3"
+  }
+}

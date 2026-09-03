@@ -9,7 +9,9 @@ Package manager is **pnpm** (pnpm-lock.yaml, `node_modules/.pnpm`), though scrip
 ```bash
 pnpm dev                  # vinext dev on http://localhost:3000
 pnpm build                # vinext build -> dist/
-pnpm lint                 # eslint (ignores dist, .next)
+pnpm lint                 # eslint (ignores dist, .next, guest)
+pnpm typecheck            # tsc over the host
+pnpm typecheck:guest      # tsc over guest/ against its own tsconfig
 pnpm test                 # vitest run (tests/**/*.test.ts, node env)
 pnpm test:watch
 pnpm test:e2e             # playwright, chromium only, auto-starts dev server
@@ -29,11 +31,15 @@ Set `PLAYWRIGHT_SKIP_WEBSERVER=1` to run e2e against an already-running dev serv
 
 Running the live preview or end-to-end suite requires a Chromium browser with cross-origin isolation and third-party storage enabled; WebContainers will not boot otherwise.
 
-Regenerating the prebuilt guest runtime (only when `lib/starter-project.ts`'s `package.json` changes): run `pnpm dev`, open `http://localhost:3000/dev/snapshot`, click **Generate snapshot**, and save both downloads into `public/guest-runtime/`. `tests/runtime-snapshot.test.ts` fails until they match.
+Regenerating the prebuilt guest runtime (only when `guest/package.json` changes): run `pnpm dev`, open `http://localhost:3000/dev/snapshot`, click **Generate snapshot**, and save both downloads into `public/guest-runtime/`. `tests/runtime-snapshot.test.ts` fails until they match.
 
 ## Repository scope
 
-- `app/`, `lib/`, `public/`, and `tests/` implement and verify the WebAlly application.
+- `app/`, `lib/`, `public/`, and `tests/` implement and verify the WebAlly host application.
+- `guest/` is the guest project mounted into the WebContainer — it is source, but it is *not* host
+  source: it never runs in this app's process, compiles against its own `guest/tsconfig.json` and
+  React version, and is excluded from the host tsconfig and eslint config. Do not import from it
+  anywhere except `lib/starter-project.ts`.
 - `skills/web-ally/` is a reusable Codex skill and protocol kit. It is not imported by or bundled into the WebAlly runtime.
 - `macos/` is a standalone SwiftPM app — a generic WebMCP browser (address bar + `WKWebView` + a
   `document.modelContext` polyfill and native bridge). It is not WebAlly-specific and shares no code
@@ -46,7 +52,7 @@ Regenerating the prebuilt guest runtime (only when `lib/starter-project.ts`'s `p
 
 ## Architecture
 
-The runtime application is a two-layer system. The **host** (this repo, Next.js App Router via `vinext` on Cloudflare Workers) boots a WebContainer holding a **guest** React+Vite project (`lib/starter-project.ts`), renders it in a cross-origin iframe, and exposes thirteen WebMCP tools to a browser agent. It also serves a small versions API backed by D1 and R2.
+The runtime application is a two-layer system. The **host** (this repo, Next.js App Router via `vinext` on Cloudflare Workers) boots a WebContainer holding a **guest** React+Vite project (`guest/`, inlined by `lib/starter-project.ts`), renders it in a cross-origin iframe, and exposes fourteen WebMCP tools to a browser agent. It also serves a small versions API backed by D1 and R2.
 
 ```
 Browser agent ──WebMCP tools──▶ Host page (app/CanvasApp.tsx)
@@ -60,9 +66,11 @@ Browser agent ──WebMCP tools──▶ Host page (app/CanvasApp.tsx)
 
 - `app/CanvasApp.tsx` — owns all application state: the iframe, the `postMessage` listener, the message queue, tool registration, and the version list. The UI is a header (brand, version picker, connection pill) over a full-width preview; there is no side rail. Everything else is a plain module, except `app/VersionSwitcher.tsx`, which is presentational and holds only its own disclosure and form state.
 - `lib/project-controller.ts` — singleton (`getProjectController()`) that owns the WebContainer lifecycle and the authoritative in-memory `FileMap`. State machine phases are the `RuntimePhase` union in `canvas-types.ts`; the UI subscribes via `controller.subscribe()`.
-- `lib/webmcp-tools.ts` — builds the thirteen `ToolDefinition`s and registers them on `document.modelContext` when native WebMCP exists. There is no in-page fallback console: without native WebMCP the tools are simply not reachable from the page, and `CanvasApp` shows "Local test bridge only".
+- `lib/webmcp-tools.ts` — builds the fourteen `ToolDefinition`s and registers them on `document.modelContext` when native WebMCP exists. There is no in-page fallback console: without native WebMCP the tools are simply not reachable from the page, and `CanvasApp` shows "Local test bridge only".
 - `lib/project-policy.ts` — path normalization + the editable-surface allowlist. `lib/persistence.ts` — IndexedDB snapshot (`webmcp-canvas`/`project-snapshots`). `lib/bridge.ts` — trusted-message predicate. `lib/hash.ts` — 16-char SHA-256 prefix. `lib/file-tree.ts` — `FileMap` → `FileSystemTree`.
-- `lib/starter-project.ts` — the entire guest project as a `FileMap` of template-literal source strings. Editing guest code means editing strings here; backticks, `${`, and backslashes in regexes must be escaped.
+- `guest/` — the entire guest project as real files at their real paths. `lib/starter-project.ts` inlines them into a `FileMap` at build time with an eager `import.meta.glob(..., { query: '?raw' })`, filtered to an extension allowlist, stripping exactly one trailing newline per file so `starterPackageHash()` stays stable. Edit guest code as ordinary files — it was escaped template literals until the guest grew into a real application.
+  - `guest/` is excluded from the host `tsconfig.json` and `eslint.config.mjs`: it targets its own React version and imports `./agent/bridge`, so host type-checking only produces noise. Guest syntax is checked in-container by `guest/scripts/validate-syntax.mjs`, and `tests/guest-audit.test.ts` runs the instrumentation audit plus the structural invariants at host test time.
+  - `vitest.config.ts` sets `css: true`; without it a `?raw` import of `guest/src/styles/*.css` resolves to an empty stub under Vitest and the guest ships with no stylesheet.
 - `lib/runtime-snapshot.ts` + `public/guest-runtime/` — the prebuilt WebContainer filesystem. `app/dev/snapshot/` is the dev-only generator that produces it.
 - `lib/version-store.ts` (D1 + R2), `lib/version-request.ts` (auth, body limits, error mapping), `app/api/versions/**` (handlers), `lib/version-client.ts` (browser), `app/VersionSwitcher.tsx` (header UI). See **Published versions** below.
 
@@ -89,13 +97,69 @@ A version is **the editable overlay only** — `extractOverlay()` / `validateOve
 
 ### The bridge (host ↔ guest)
 
-Protocol constant `webmcp-canvas/v1` is duplicated: `BRIDGE_PROTOCOL` in `lib/canvas-types.ts` and a `PROTOCOL` literal inside the `src/agent/bridge.tsx` string in `starter-project.ts`. Change both together.
+Protocol constant `webmcp-canvas/v1` is duplicated: `BRIDGE_PROTOCOL` in `lib/canvas-types.ts` and a `PROTOCOL` literal in `guest/src/agent/bridge.tsx`. Change both together.
 
 - Host → guest: `highlight`, `clear-highlight`, posted to the exact preview origin.
 - Guest → host: `registry` (instrumented element descriptors), `coverage` (instrumentation audit result), `user-message` (typed / final-speech text).
 - Host origin reaches the guest via the `?canvasHost=` query param on the iframe `src`; the guest pins `hostOrigin` from it. Host-side, `isTrustedPreviewMessage` requires matching source window **and** exact origin **and** protocol — do not relax any of the three.
 
 Guest UI is instrumented with `AgentTarget` / `AgentButton` / `AgentInput` from `src/agent/bridge.tsx`; the guest's `scripts/audit-ui.mjs` fails validation on any raw `<button>`/`<input>`/`<a>` JSX or duplicate `agentId`, so agent-authored guest UI must use the wrappers. `scripts/validate-syntax.mjs` transpile-checks all guest `src/**/*.ts(x)` — syntax only, not full type-checking.
+
+### Guest capabilities (host-mediated)
+
+The guest is a real application now, and real applications need routes, storage,
+and a way to sign in. It gets all three by asking the host, never by doing them
+itself. `lib/host-capabilities.ts` is the dispatcher; `guest/src/agent/bridge.tsx`
+is the guest half. Both are protected files.
+
+- Guest -> host: `manifest` (declared routes + wanted capabilities) and
+  `host-request` (`{id, method, params}`). Host -> guest: `host-response`
+  (`{id, ok, value|error}`) and `host-event` (`auth.changed`, `record.changed`,
+  `navigate`). All additive to `webmcp-canvas/v1`; an older published version
+  that sends no `manifest` simply declares no routes.
+- Methods: `state.get/set/delete`, `auth.status/connect/disconnect`,
+  `record.get/unlock/lock/clear/download`.
+- **`computeGrant()` is the security boundary.** The starter and versions *you*
+  published are privileged; anything else gets namespaced `state.*` and is
+  refused `auth.*` and `record.*` outright. This is the same rule `previewAllow`
+  already applies to the microphone, for the same reason: a published version is
+  a stranger's code. `tests/host-capabilities.test.ts` pins it. `state.*` scopes
+  are per-version, so one version cannot read another's keys.
+- The token and the Argon2id-derived key never cross the bridge. The passphrase
+  prompt is deliberately host chrome (`app/PassphrasePrompt.tsx`), not guest UI —
+  a passphrase field rendered inside the preview would be one an agent, or a
+  published version, controls.
+- `navigate_to_route` is built from the declared routes only, so the agent can
+  never navigate the preview somewhere it cannot render. For a voice user this is
+  the point: "take me to my record" beats hunting for a link.
+
+### Health subsystem
+
+`lib/health/**` is ported from the sibling `yesyouhealth` Next.js app (read-only;
+do not modify it). `epic.ts` and `providers.ts` are verbatim, `encryption.ts` is
+verbatim, `types.ts`/`storage.ts`/`session.ts`/`import.ts` are adapted.
+
+- All of it is browser code and always was: PKCE public client, no secret, token
+  exchange in the page. What changed is *which* page. Epic can never register the
+  WebContainer's ephemeral origin as a `redirect_uri`, so the host runs OAuth on
+  its own stable origin and hands the guest a decrypted record.
+- **COOP `same-origin` severs `window.opener`**, so the popup cannot post back.
+  `lib/health/session.ts` opens the popup at a *same-origin* `/health/connect`
+  which then redirects itself to Epic, and the result returns over
+  `BroadcastChannel`. A consequence: the host cannot poll `popup.closed`, so
+  abandonment is caught by timeout, not polling.
+- **This flow cannot work in `macos/`** — no `createWebViewWith`, so
+  `window.open` does nothing. That is detected via a `started` heartbeat and
+  reported, rather than hanging. Accepted trade-off of the popup approach.
+- The agent cannot start a sign-in: `window.open` needs transient user
+  activation, so a popup opened from a tool call is blocked. Auth stays a user
+  gesture; the agent's role is `navigate_to_route` and highlighting.
+- `VITE_EPIC_CLIENT_ID` enables it. Missing config is a **soft failure**: the
+  connect panel says so and `/explore` still serves `public/demo/`'s
+  de-identified sample. Never make the canvas depend on it.
+- The demo fixture lives in the **host's** `public/`, not the guest's: at ~4.5MB
+  it would exceed the overlay limits (256KB/file, 1MB/batch) and the 2MB publish
+  body cap.
 
 ### Messages are pull-only
 
@@ -124,7 +188,7 @@ Cloudflare Workers via `@cloudflare/vite-plugin` + wrangler. Bindings are driven
 
 ## Testing shape
 
-Unit tests are node-environment and cover pure modules only (policy, queue, bridge predicate, tool contracts with a mocked controller) — no WebContainer, no jsdom. `tests/webmcp-tools.test.ts` asserts the exact tool name list and order; adding or renaming a tool requires updating it. `tests/runtime-snapshot.test.ts` reads `public/guest-runtime/` off disk and is the guard against shipping a snapshot built from a different guest `package.json`. E2E drives the real WebContainer boot, so the speech test allows a 90s wait and injects a mock `SpeechRecognition` via `addInitScript`. Since nothing in the page invokes tools any more, `e2e/canvas.spec.ts` installs a minimal `document.modelContext` via `addInitScript` and calls the registered descriptors directly. That stub must honour the registration `AbortSignal`: `registerNativeTools` re-registers whenever the preview origin changes, and a stub that keeps aborted descriptors hands tests a stale tool reporting that the live preview is not ready.
+Unit tests are node-environment and cover pure modules only (policy, queue, bridge predicate, tool contracts with a mocked controller) — no WebContainer, no jsdom. Three suites were added with the guest port: `tests/guest-audit.test.ts` runs the instrumentation audit and structural invariants over `guest/src` in milliseconds, instead of only discovering a violation after a 45s in-container `validate`; `tests/host-capabilities.test.ts` pins the capability grant policy; `tests/health-storage.test.ts` uses `fake-indexeddb` to check the record is unreadable without its passphrase. `tests/webmcp-tools.test.ts` asserts the exact tool name list and order; adding or renaming a tool requires updating it. `tests/runtime-snapshot.test.ts` reads `public/guest-runtime/` off disk and is the guard against shipping a snapshot built from a different guest `package.json`. E2E drives the real WebContainer boot, so the speech test allows a 90s wait and injects a mock `SpeechRecognition` via `addInitScript`. Since nothing in the page invokes tools any more, `e2e/canvas.spec.ts` installs a minimal `document.modelContext` via `addInitScript` and calls the registered descriptors directly. That stub must honour the registration `AbortSignal`: `registerNativeTools` re-registers whenever the preview origin changes, and a stub that keeps aborted descriptors hands tests a stale tool reporting that the live preview is not ready.
 
 Changes to `skills/web-ally/assets/web-ally-starter.ts` must also pass strict standalone compilation:
 

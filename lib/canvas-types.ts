@@ -68,6 +68,57 @@ export interface UserMessage {
   createdAt: string;
 }
 
+/**
+ * A route the guest app says it can render. Declared by the guest on mount via
+ * the `manifest` message, and the source of truth for `navigate_to_route` — the
+ * host never guesses what the guest can display.
+ */
+export interface RouteDescriptor {
+  /** Canonical path, e.g. `/explore`. The hash router is transport, not identity. */
+  path: string;
+  title: string;
+  description: string;
+}
+
+export interface GuestManifest {
+  routes: RouteDescriptor[];
+  /** Capability names the guest would like. The host decides what it actually gets. */
+  capabilities: string[];
+}
+
+export interface HostRequestMessage {
+  id: string;
+  method: string;
+  params?: Record<string, unknown>;
+}
+
+export interface HostResponseMessage {
+  id: string;
+  ok: boolean;
+  value?: unknown;
+  error?: string;
+}
+
+export interface HostEventMessage {
+  event: string;
+  payload?: unknown;
+}
+
+/**
+ * What the currently loaded guest is allowed to ask the host for.
+ *
+ * A published version is someone else's code running in your browser, so this
+ * mirrors the rule `previewAllow` already applies to the microphone: your own
+ * work is trusted, a stranger's is not. `scope` additionally partitions
+ * `state.*` so one version can never read another's stored state.
+ */
+export interface CapabilityGrant {
+  /** State namespace: a version id, or `starter`. */
+  scope: string;
+  /** True for the starter and for versions this browser published. Gates `auth.*` and `record.*`. */
+  privileged: boolean;
+}
+
 export interface ToolDefinition {
   name: string;
   title: string;

@@ -86,3 +86,32 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .version-confirm-actions .primary { border-color: var(--ink); background: var(--ink); color: var(--lime); }
 .version-confirm-actions .danger { border-color: #e5c3c0; color: #9b615c; }
 @media (max-width: 620px) { .version-trigger .eyebrow { display: none; } .version-menu { width: min(340px, calc(100vw - 40px)); } }
+
+/* Declared routes ---------------------------------------------------------- */
+
+.preview-routes { margin-left: 8px; padding: 2px 7px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.7); color: #788394; font-size: 10px; font-weight: 750; }
+
+/* Passphrase prompt -------------------------------------------------------- */
+
+.passphrase-dialog { width: min(430px, calc(100vw - 40px)); padding: 0; border: 1px solid var(--line); border-radius: 17px; background: #fff; color: var(--ink); box-shadow: 0 24px 64px rgba(24,36,52,.25); }
+.passphrase-dialog::backdrop { background: rgba(24,36,52,.42); }
+.passphrase-dialog form { display: flex; flex-direction: column; padding: 22px; }
+.passphrase-dialog h2 { margin: 0 0 8px; font-size: 17px; letter-spacing: -.02em; }
+.passphrase-dialog > form > p { margin: 0 0 16px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.passphrase-dialog label { margin-bottom: 5px; font-size: 11px; font-weight: 750; }
+.passphrase-dialog input { margin-bottom: 13px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 11px; background: #fbfcfd; color: inherit; font: inherit; font-size: 13px; }
+.passphrase-dialog input:focus-visible { outline: 3px solid rgba(56,103,244,.28); outline-offset: 1px; border-color: var(--blue); }
+.passphrase-error { margin: 0 0 12px; color: #9b615c; font-size: 12px; }
+.passphrase-actions { display: flex; justify-content: flex-end; gap: 9px; }
+.passphrase-actions button { padding: 9px 15px; border: 1px solid var(--line); border-radius: 11px; background: #fff; color: inherit; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.passphrase-actions .passphrase-primary { border-color: var(--ink); background: var(--ink); color: var(--lime); }
+.passphrase-actions button:hover { border-color: #c3ccd8; }
+
+/* OAuth popup pages ---------------------------------------------------------- */
+
+.health-callback { max-width: 420px; margin: 0 auto; padding: 64px 24px; text-align: center; }
+.health-callback h1 { margin: 0 0 12px; font-size: 19px; letter-spacing: -.02em; }
+.health-callback p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.health-callback-hint { margin-top: 14px !important; font-size: 12px; }
+.import-pill { margin-left: auto; padding: 9px 13px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.74); font-size: 11px; font-weight: 750; }
+.import-pill + .connection-pill { margin-left: 9px; }
