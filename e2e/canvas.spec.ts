@@ -69,6 +69,32 @@ test('registers each tool once and keeps it registered', async ({ page }) => {
   expect(await count()).toBe(19);
 });
 
+test('picks up a bridge that attaches after load', async ({ page }) => {
+  // No init script: the page loads with no `document.modelContext` at all, the
+  // way it does when an extension's bridge has not attached yet. Registration
+  // at import finds nothing, and the watcher in lib/webmcp-runtime has to catch
+  // the context when it shows up.
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Formless Labs' })).toBeVisible();
+  expect(await page.evaluate(() => '__tools' in window)).toBe(false);
+
+  await page.evaluate(() => {
+    const registered: unknown[] = [];
+    (window as unknown as { __tools: unknown[] }).__tools = registered;
+    Object.defineProperty(document, 'modelContext', {
+      configurable: true,
+      value: { registerTool: (tool: unknown) => { registered.push(tool); } },
+    });
+  });
+
+  const count = () => page.evaluate(() => (window as unknown as { __tools: unknown[] }).__tools.length);
+  await expect.poll(count, { timeout: 10_000 }).toBe(19);
+  // The watcher must stop on its first success rather than re-registering on
+  // every later tick.
+  await page.waitForTimeout(3_000);
+  expect(await count()).toBe(19);
+});
+
 test('queues a final mocked speech transcript from the editable preview', async ({ page }) => {
   await installModelContext(page);
   await page.addInitScript(() => {

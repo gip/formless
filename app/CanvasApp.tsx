@@ -323,6 +323,18 @@ export default function CanvasApp() {
   }, [previewOrigin, capabilities, previewIdentity, nativeWebMcp]);
 
   /**
+   * The `manifest` handler above answers `mcp.status` for the usual order: a
+   * bridge is already attached when the guest mounts. This is the other order.
+   * A bridge that attaches late (see the watcher in lib/webmcp-runtime) flips
+   * the registration after the guest has already been told no agent is there,
+   * and its composer would stay in that state until the next remount.
+   */
+  useEffect(() => {
+    if (!nativeWebMcp) return;
+    emitHostEvent('mcp.status', { connected: true });
+  }, [nativeWebMcp]);
+
+  /**
    * Tools are already registered (see lib/webmcp-runtime). All this does is
    * hand the runtime the live preview window once it exists.
    *
