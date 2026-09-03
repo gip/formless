@@ -8,7 +8,7 @@ import { useImportState } from './components/import-progress';
 import { navigate, ROUTES, RouteLink, useHostNavigation, useRoute } from './components/router';
 
 /**
- * YesYou Health, running as Formless Health's guest application.
+ * Formless Health, running as Formless Labs' guest application.
  *
  * Two routes, ported from the Next.js app: the landing page and the record
  * explorer. Everything an agent might rewrite lives under `src/components/`;
@@ -39,8 +39,8 @@ export default function App() {
     <div className="app-shell">
       <header className="site-header">
         <div className="brand">
-          <span className="brand-mark">Y</span>
-          <span>YesYou Health</span>
+          <span className="brand-mark">F</span>
+          <span>Formless Health</span>
         </div>
         <nav aria-label="Primary navigation">
           <RouteLink
@@ -67,7 +67,7 @@ export default function App() {
       <AgentComposer />
 
       <footer>
-        <span>© {new Date().getFullYear()} YesYou Health</span>
+        <span>© {new Date().getFullYear()} Formless Health</span>
         <span>Patient-authorized. Read-only. Built for clarity.</span>
       </footer>
 

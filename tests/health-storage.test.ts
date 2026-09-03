@@ -26,7 +26,7 @@ function record(): HealthExportDocument {
   return {
     schemaVersion: 1,
     exportedAt: '2026-01-01T00:00:00.000Z',
-    exportedBy: 'YesYou Health',
+    exportedBy: 'Formless Health',
     source: { provider: 'UCSF Health', fhirBase: 'https://example.invalid/fhir', patientId: 'p1' },
     purpose: 'Testing.',
     limitations: [],

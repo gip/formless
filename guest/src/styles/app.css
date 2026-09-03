@@ -1,5 +1,5 @@
 /*
- * YesYou Health, ported from the Next.js app's `app/globals.css`.
+ * Formless Health, ported from the Next.js app's `app/globals.css`.
  *
  * Two substantive changes from the original:
  *   - `next/font/google` is not available here, and self-hosted woff2 would eat
@@ -313,6 +313,11 @@ h1 { max-width: 760px; margin: 0; font-family: var(--serif); font-size: var(--te
 .prompt-form .speech.active { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); }
 .mic-dot { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: currentColor; }
 .composer-notice { margin: 8px 2px 0; color: var(--muted); font-family: var(--mono); font-size: var(--text-xs); letter-spacing: .01em; }
+.agent-composer.disconnected { padding: 14px 16px 13px; }
+.agent-composer.disconnected .composer-notice { margin-top: 9px; }
+.composer-headline { margin: 0 0 6px; font-size: var(--text-sm); font-weight: 700; letter-spacing: -.01em; }
+.composer-body { margin: 0; color: var(--muted); font-size: var(--text-sm); line-height: 1.55; }
+.composer-body strong { color: var(--ink); font-weight: 700; }
 
 .record-card-cta { width: 100%; margin-top: 20px; }
 .connect-panel { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }

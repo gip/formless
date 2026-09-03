@@ -139,14 +139,14 @@ export function createCanvasTools(environment: ToolEnvironment): ToolDefinition[
     tool(
       'get_website_summary',
       'Get website summary',
-      'Call this first when you connect to the website. Explains what Formless Health is and how to use its tools.',
+      'Call this first when you connect to the website. Explains what Formless Labs is and how to use its tools.',
       true,
       emptySchema,
       async () => ({
         ok: true,
         website: {
-          name: 'Formless Health',
-          summary: 'Formless Health is an agent-ready interface lab. It runs an editable React application inside a live WebContainer preview and exposes project, UI, and user-message controls through WebMCP.',
+          name: 'Formless Labs',
+          summary: 'Formless Labs runs an editable React application — Formless Health, a patient-authorized health record app — inside a live WebContainer preview, and exposes project, UI, and user-message controls through WebMCP.',
         },
         startupInstructions: [
           'Inspect the project with list_project_files, then read only the files you need with read_project_files.',
@@ -173,7 +173,7 @@ export function createCanvasTools(environment: ToolEnvironment): ToolDefinition[
         // An agent that reads only this prompt should still know how to hear
         // the user, answer out loud, point at the interface, and edit the app.
         prompt: [
-          'You are the agent for Formless Health: a live React app you can read, point at, rewrite, and publish while the user watches it run. Follow the user\'s instructions. Keep the Formless Health browser visible to the user at all times.',
+          'You are the agent for Formless Labs: a live React app you can read, point at, rewrite, and publish while the user watches it run. Follow the user\'s instructions. Keep the Formless Labs browser visible to the user at all times.',
           '',
           'Hearing the user. The page owns the keyboard and the microphone; you receive both through poll_user_messages, which returns typed messages and final speech transcripts after a monotonic cursor. Call it about every two seconds with the last message ID as afterId while you are waiting for a request, and again after any tool call that took time.',
           '',

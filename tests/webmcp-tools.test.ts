@@ -58,7 +58,7 @@ function tinyRecord(): HealthExportDocument {
   return {
     schemaVersion: 1,
     exportedAt: '2026-08-01T00:00:00.000Z',
-    exportedBy: 'YesYou Health',
+    exportedBy: 'Formless Health',
     source: { provider: 'UCSF Health', fhirBase: 'https://example.test/fhir', patientId: 'p1' },
     purpose: 'Testing.',
     limitations: [],
@@ -128,7 +128,7 @@ describe('WebMCP tool contracts', () => {
     expect(summary.description).toContain('first');
     expect(await summary.execute({})).toMatchObject({
       ok: true,
-      website: { name: 'Formless Health' },
+      website: { name: 'Formless Labs' },
       startupInstructions: expect.arrayContaining([
         expect.stringContaining('list_project_files'),
         expect.stringContaining('apply_project_changes'),
@@ -142,7 +142,7 @@ describe('WebMCP tool contracts', () => {
     expect(prompt.annotations.readOnlyHint).toBe(true);
     const promptResult = await prompt.execute({}) as { ok: true; prompt: string };
     expect(promptResult.ok).toBe(true);
-    expect(promptResult.prompt).toContain('Keep the Formless Health browser visible to the user at all times.');
+    expect(promptResult.prompt).toContain('Keep the Formless Labs browser visible to the user at all times.');
     // An agent that reads only this prompt must still learn that the page is
     // changed through the tool, not through devtools or CDP. Leaving that to
     // startupInstructions alone is what let a real session inject CSS instead.
@@ -345,12 +345,12 @@ describe('speak_text and stop_speaking', () => {
 
   it('reports a port failure as a tool error rather than throwing', async () => {
     const speech = speechStub({
-      speak: vi.fn(async () => { throw new Error('The browser refused to speak. Ask the user to click "Enable voice".'); }),
+      speak: vi.fn(async () => { throw new Error('The browser refused to speak. Ask the user to click the page.'); }),
     });
     const speak = speechTools(speech).find((tool) => tool.name === 'speak_text')!;
     expect(await speak.execute({ text: 'hello' })).toEqual({
       ok: false,
-      error: expect.stringContaining('Enable voice'),
+      error: expect.stringContaining('refused to speak'),
     });
     expect(await speak.execute({ text: 42 })).toMatchObject({ ok: false, error: 'text must be a string.' });
   });

@@ -1,6 +1,6 @@
-import { useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 
-import { AgentButton, AgentInput, AgentTarget, sendUserMessage } from '../agent/bridge';
+import { AgentButton, AgentInput, AgentTarget, onHostEvent, sendUserMessage } from '../agent/bridge';
 
 /**
  * The user's channel to the agent, docked on every route.
@@ -12,6 +12,12 @@ import { AgentButton, AgentInput, AgentTarget, sendUserMessage } from '../agent/
  * looking at the record, not on the landing page.
  *
  * Speech and the send button both funnel into `sendUserMessage`.
+ *
+ * All of which is true only when an agent is actually attached. With no MCP
+ * client on the other end nothing polls the queue, so typing into the box is a
+ * message to nobody — worse than no box at all, because it looks like it worked.
+ * So the composer asks the host whether a real client is connected and, when it
+ * is not, spends the same panel explaining how to connect one instead.
  */
 
 type RecognitionEvent = Event & {
@@ -36,15 +42,38 @@ declare global {
   }
 }
 
+/**
+ * How long to wait for the host's answer before assuming there is none.
+ *
+ * The host replies to the manifest this app posts at mount, so the answer
+ * normally lands within a frame or two. A silence past this means the page is
+ * not running inside the canvas at all, which is the disconnected case.
+ */
+const STATUS_TIMEOUT_MS = 1500;
+
 export default function AgentComposer() {
   const [prompt, setPrompt] = useState('');
   const [notice, setNotice] = useState('Ask for anything on this page.');
   const [listening, setListening] = useState(false);
+  const [connected, setConnected] = useState<boolean | null>(null);
   const recognitionRef = useRef<Recognition | null>(null);
   const RecognitionCtor = useMemo(
     () => window.SpeechRecognition || window.webkitSpeechRecognition,
     [],
   );
+
+  useEffect(() => {
+    const stop = onHostEvent('mcp.status', (payload) => {
+      setConnected((payload as { connected?: unknown } | undefined)?.connected === true);
+    });
+    // Nothing renders until this resolves one way or the other, so the timeout
+    // is what guarantees the panel appears at all.
+    const timer = window.setTimeout(() => setConnected((current) => current ?? false), STATUS_TIMEOUT_MS);
+    return () => {
+      stop();
+      window.clearTimeout(timer);
+    };
+  }, []);
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -86,6 +115,31 @@ export default function AgentComposer() {
     recognition.start();
     setListening(true);
     setNotice('Listening… tap again to stop.');
+  }
+
+  // Showing either panel before the host has answered would mean showing the
+  // wrong one first and swapping it out under the reader.
+  if (connected === null) return null;
+
+  if (!connected) {
+    return (
+      <AgentTarget
+        agentId="agent-composer-offline"
+        label="How to connect an agent"
+        description="Explains that this page is WebMCP-enabled and that no agent is currently attached."
+      >
+        <aside className="agent-composer disconnected" aria-label="How to connect an agent">
+          <p className="composer-headline">No agent is connected.</p>
+          <p className="composer-body">
+            Formless Health is WebMCP-enabled: an AI assistant can read this page, point at
+            what it is talking about, and act on your behalf — but only once one is attached.
+            Open this page in ChatGPT with either <strong>Terra</strong> or <strong>Sol</strong>
+            {' '}to use those features.
+          </p>
+          <p className="composer-notice">Everything on this page works without an agent, too.</p>
+        </aside>
+      </AgentTarget>
+    );
   }
 
   return (

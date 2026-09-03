@@ -32,13 +32,14 @@ test('publishes, lists, and unpublishes a version over the API', async ({ reques
 });
 
 test('publishes the live app from the header and switches back to it', async ({ page }) => {
-  // The runtime pill, not the splash heading, is the signal the preview is live.
-  const ready = page.locator('.preview-status.ready');
+  // The stage's phase attribute, not the splash heading, is the signal the
+  // preview is live.
+  const ready = page.locator('.preview-stage[data-phase="ready"]');
   await page.goto('/');
   await expect(ready).toBeVisible({ timeout: 90_000 });
 
   const trigger = page.getByRole('button', { name: /^Version/ });
-  await expect(trigger).toContainText('Starter project');
+  await expect(trigger).toContainText('Default app');
 
   const name = `E2E ${Date.now().toString(36)}`;
   await trigger.click();
@@ -53,8 +54,8 @@ test('publishes the live app from the header and switches back to it', async ({ 
 
   // Switching to the starter and back exercises `loadVersion` in both directions.
   await trigger.click();
-  await page.getByRole('menuitem', { name: /Starter project/ }).click();
-  await expect(trigger).toContainText('Starter project', { timeout: 30_000 });
+  await page.getByRole('menuitem', { name: /Default app/ }).click();
+  await expect(trigger).toContainText('Default app', { timeout: 30_000 });
   await expect(page).not.toHaveURL(/[?&]version=/);
 
   await trigger.click();
