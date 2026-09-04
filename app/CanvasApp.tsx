@@ -42,6 +42,16 @@ import {
   subscribeNativeWebMcp,
 } from '@/lib/webmcp-runtime';
 
+/**
+ * How long the host waits for the guest to show that a change reached it.
+ *
+ * Long enough for Vite to transform a module and for React to re-render it over
+ * a WebContainer's preview origin; short enough that a preview which is not
+ * updating is corrected while the person who asked for the change is still
+ * looking at it.
+ */
+const PREVIEW_ACK_MS = 2_500;
+
 const initialControllerState: ControllerState = {
   phase: 'idle',
   detail: 'Preparing the canvas',
@@ -85,6 +95,31 @@ export default function CanvasApp() {
    * decision made about someone else's code.
    */
   const [trustDismissed, setTrustDismissed] = useState<string | null>(null);
+
+  /**
+   * Forces the preview frame to re-mount when a change did not reach it.
+   *
+   * `applyChanges()` writes into the container, validates, bumps the revision
+   * and reports success — all host-side. Whether the running guest picked up the
+   * new bytes is never part of that: the frame is deliberately not keyed on the
+   * revision, so everything after the write rides on Vite's watcher and the HMR
+   * channel inside the container. When that channel is not delivering, the host
+   * reports success over a stale page, says nothing, and the only way out is the
+   * reload the user ends up doing by hand.
+   *
+   * So silence is treated as failure. `guestSpokeRef` counts the messages that
+   * only a guest that has re-rendered can send — `manifest` when it mounts,
+   * `registry` when its annotated elements re-register — and a revision that
+   * moves without one of those arriving within `PREVIEW_ACK_MS` re-mounts the
+   * frame.
+   *
+   * The false positive is a reload nobody needed, which is what today already
+   * costs; there is no false negative that leaves a stale preview standing.
+   */
+  const [previewNonce, setPreviewNonce] = useState(0);
+  const guestSpokeRef = useRef(0);
+  const frameSettledRef = useRef(false);
+  const ackedRevisionRef = useRef<{ previewUrl: string; revision: number } | null>(null);
 
   /**
    * A published version is someone else's code. It has always run cross-origin,
@@ -287,6 +322,7 @@ export default function CanvasApp() {
       if (!isTrustedPreviewMessage(event, iframeRef.current?.contentWindow ?? null, previewOrigin)) return;
       const payload = event.data.payload as Record<string, unknown> | undefined;
       if (event.data.type === 'registry' && Array.isArray(payload?.elements)) {
+        guestSpokeRef.current += 1;
         setElements(payload.elements as UiElementDescriptor[]);
       }
       if (event.data.type === 'user-message' && typeof payload?.text === 'string' && (payload.source === 'typed' || payload.source === 'speech')) {
@@ -295,6 +331,8 @@ export default function CanvasApp() {
         } catch { /* Empty preview messages are ignored. */ }
       }
       if (event.data.type === 'manifest') {
+        guestSpokeRef.current += 1;
+        frameSettledRef.current = true;
         const declared = Array.isArray(payload?.routes) ? (payload.routes as RouteDescriptor[]) : [];
         const clean = declared.filter(
           (route) => route && typeof route.path === 'string' && typeof route.title === 'string',
@@ -351,9 +389,69 @@ export default function CanvasApp() {
    */
   const attachPreview = useCallback((node: HTMLIFrameElement | null) => {
     iframeRef.current = node;
+    // A frame that has not announced itself yet is still booting, and what it
+    // says when it lands describes the code it started with. `frameSettledRef`
+    // is what keeps that from being read as proof about a later revision.
+    if (node) frameSettledRef.current = false;
     const frameWindow = node?.contentWindow ?? null;
     setPreviewTarget(frameWindow && previewOrigin ? { window: frameWindow, origin: previewOrigin } : null);
   }, [previewOrigin]);
+
+  /**
+   * Re-mounts the preview when a revision moved and the guest never answered.
+   *
+   * Armed on a revision *change* — an `apply_project_changes`, a version switch,
+   * a revert — because all three write into the container and then depend on the
+   * same channel to show the result. The first revision seen on a preview URL is
+   * only a baseline: a frame that has just mounted is already showing the newest
+   * code, so re-mounting it would cost a boot to prove something that was never
+   * in doubt. `applyChanges` passes through a non-`ready` phase between the two
+   * revisions, and this reads only `ready` states, so the baseline is never the
+   * half-applied middle of one.
+   */
+  useEffect(() => {
+    if (runtime.phase !== 'ready' || !runtime.previewUrl) return;
+    const seen = ackedRevisionRef.current;
+    const baseline = seen && seen.previewUrl === runtime.previewUrl ? seen.revision : null;
+    ackedRevisionRef.current = { previewUrl: runtime.previewUrl, revision: runtime.revision };
+    if (baseline === null || baseline === runtime.revision) return;
+    const spokenBefore = guestSpokeRef.current;
+    // Only a frame that had already landed can prove anything by speaking. One
+    // still booting when the revision moved will announce itself either way, and
+    // that announcement belongs to the code it loaded — so its silence and its
+    // speech are equally uninformative, and the reload is unconditional.
+    const settledBefore = frameSettledRef.current;
+    const timer = window.setTimeout(() => {
+      // Anything from the guest in the meantime means it re-rendered, so the
+      // update did land and a reload would only throw away what it is showing.
+      if (settledBefore && guestSpokeRef.current !== spokenBefore) return;
+      setPreviewNonce((value) => value + 1);
+    }, PREVIEW_ACK_MS);
+    return () => window.clearTimeout(timer);
+  }, [runtime.phase, runtime.previewUrl, runtime.revision]);
+
+  /**
+   * Puts a version the server has just described into the list, ahead of
+   * anything that reads privileges off it.
+   *
+   * `computeGrant()` refuses `auth.*` and `record.*` for an id it cannot find in
+   * `versions` — right for an id the host cannot vouch for, wrong for one the
+   * server just answered for. `publishVersion()` and `fetchVersion()` both come
+   * back with a complete `AppVersion` carrying `mine`; dropping that and waiting
+   * for `refreshVersions()` to catch up left a whole round-trip in which your own
+   * brand-new version counted as a stranger's. The guest was told so in writing,
+   * and pointed at a "Sandboxed" badge that — the version being yours — was
+   * never rendered.
+   */
+  const rememberVersion = useCallback((version: AppVersion) => {
+    setVersions((current) => {
+      const index = current.findIndex((entry) => entry.id === version.id);
+      if (index === -1) return [version, ...current];
+      const next = [...current];
+      next[index] = version;
+      return next;
+    });
+  }, []);
 
   const refreshVersions = useCallback(async () => {
     const result = await listVersions();
@@ -382,8 +480,11 @@ export default function CanvasApp() {
       if (id !== null) {
         const detail = await fetchVersion(id);
         if (!detail.ok) throw new Error(detail.reason);
-        overlay = detail.value.files;
-        loaded = detail.value;
+        const { files, ...summary } = detail.value;
+        overlay = files;
+        // Before `loadVersion()`, which is what makes the runtime name this id.
+        rememberVersion(summary);
+        loaded = summary;
       }
       await controller.loadVersion(
         controller.getState().revision,
@@ -401,7 +502,7 @@ export default function CanvasApp() {
     } finally {
       setVersionBusy(false);
     }
-  }, [controller]);
+  }, [controller, rememberVersion]);
 
   /**
    * Throws away the working copy and reloads the version it was checked out
@@ -429,6 +530,8 @@ export default function CanvasApp() {
       const hash = starterHash ?? await starterPackageHash();
       const result = await publishVersion({ name, description, starterHash: hash, files: controller.currentOverlay() });
       if (!result.ok) throw new Error(result.reason);
+      // Before `markPublished()`, which is what makes the runtime name this id.
+      rememberVersion(result.value);
       // The draft on disk already is this version, so point at it rather than
       // reloading the overlay we just uploaded.
       await controller.markPublished(result.value.id);
@@ -443,7 +546,7 @@ export default function CanvasApp() {
     } finally {
       setVersionBusy(false);
     }
-  }, [controller, refreshVersions, starterHash]);
+  }, [controller, refreshVersions, rememberVersion, starterHash]);
 
   const unpublishCurrent = useCallback(async (id: string) => {
     setVersionBusy(true);
@@ -572,7 +675,8 @@ export default function CanvasApp() {
               <iframe
                 ref={attachPreview}
                 // `allow` is read at load, so it has to be part of the key.
-                key={`${runtime.previewUrl}|${previewAllow}`}
+                // So is the nonce: bumping it is how a stale preview is reloaded.
+                key={`${runtime.previewUrl}|${previewAllow}|${previewNonce}`}
                 src={`${runtime.previewUrl}/?canvasHost=${encodeURIComponent(window.location.origin)}`}
                 title="Editable WebMCP application preview"
                 allow={previewAllow}
