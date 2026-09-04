@@ -356,9 +356,24 @@ h1 { max-width: 760px; margin: 0; font-family: var(--serif); font-size: var(--te
    prompt roughly triples it, and the bottom of the page would sit under it. */
 .app-shell:has(.starter-prompt) { padding-bottom: 320px; }
 .agent-composer { position: fixed; left: 50%; bottom: 18px; z-index: 40; width: min(760px, calc(100vw - 32px)); transform: translateX(-50%); padding: 12px 14px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-lg); background: rgba(255,255,255,.94); backdrop-filter: blur(8px); box-shadow: 0 12px 40px rgba(16,24,19,.14); }
-.prompt-form { display: flex; align-items: center; gap: 9px; }
-.prompt-form input { flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--paper); color: var(--ink); font: inherit; font-size: 14px; }
-.prompt-form input:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; border-color: var(--accent); }
+.prompt-form { display: flex; align-items: flex-end; gap: 9px; }
+/* The prompt box grows with what is typed or pasted into it, to a five-line
+   ceiling, and scrolls past that: a pasted paragraph is worth reading back
+   before it is sent, and a one-line field shows it a dozen characters at a time.
+   The growth is CSS, not an effect: the `::after` mirror carries a copy of the
+   text and sets the row height, and the textarea — sharing the one grid cell —
+   stretches to it. Measuring `scrollHeight` instead would need a ref on the
+   textarea, and `AgentTarget` already claims the ref of anything it instruments.
+   Both boxes must therefore stay metrically identical; only the borders differ,
+   which is why the mirror carries a transparent one — and why it restates
+   `box-sizing`, which the `*` reset above does not reach into pseudo-elements. */
+.prompt-field { display: grid; flex: 1 1 auto; min-width: 0; }
+.prompt-field::after, .prompt-field textarea { grid-area: 1 / 1; box-sizing: border-box; min-height: 44px; max-height: 132px; padding: 10px 14px; border: 1px solid transparent; font: inherit; font-size: 14px; line-height: 22px; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* 44px = one 22px line + padding + borders, matching the buttons; 132px = five.
+   The trailing space gives a final newline the line height it just opened. */
+.prompt-field::after { content: attr(data-value) ' '; overflow: hidden; visibility: hidden; }
+.prompt-field textarea { overflow-y: auto; resize: none; border-color: var(--line); border-radius: var(--radius-sm); background: var(--paper); color: var(--ink); }
+.prompt-field textarea:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; border-color: var(--accent); }
 .prompt-form button { flex: 0 0 auto; min-height: 44px; padding: 0 16px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--card); color: var(--ink); font: inherit; font-size: var(--text-sm); font-weight: 600; cursor: pointer; transition: background .15s ease, border-color .15s ease, color .15s ease; }
 .prompt-form .composer-send { border-color: var(--accent); background: var(--accent); color: #fff; }
 .prompt-form .composer-send:hover { background: var(--accent-strong); }
@@ -398,5 +413,5 @@ h1 { max-width: 760px; margin: 0; font-family: var(--serif); font-size: var(--te
 @media (max-width: 620px) {
   .agent-composer { width: calc(100vw - 20px); bottom: 10px; padding: 10px; }
   .prompt-form { flex-wrap: wrap; }
-  .prompt-form input { flex-basis: 100%; }
+  .prompt-field { flex-basis: 100%; }
 }
