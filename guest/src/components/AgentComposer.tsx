@@ -151,6 +151,8 @@ async function copyText(text: string, block: HTMLElement | null): Promise<boolea
  * page the agent was polling, so whoever comes back needs the loop started
  * again — which is this paragraph. Persisting the dismissal would hide the one
  * thing a reloaded session is missing.
+ *
+ * What does fold it away unasked is the agent itself — see `promptChoice`.
  */
 function StarterPrompt({
   dismissed,
@@ -240,7 +242,26 @@ export default function AgentComposer() {
    * nobody has ever looked, which is the state worth naming.
    */
   const [active, setActive] = useState(false);
-  const [promptDismissed, setPromptDismissed] = useState(false);
+  /**
+   * Whether the starter prompt is showing, and who decided.
+   *
+   * `auto` defers to the agent: the paragraph exists to get a model into the
+   * polling loop, so the first tool call is proof it is no longer needed. That
+   * covers the case it was written for — publishing a version remounts this app
+   * underneath an agent that is already looping, and a prompt that only closed
+   * on Done would reappear on every publish and ask to be dismissed again.
+   *
+   * Derived during render rather than dismissed from an effect, because on that
+   * remount `active` is already true in the first status and an effect would
+   * flash the prompt for a frame before folding it away.
+   *
+   * `open` and `closed` are the user's own answers and outrank the agent in
+   * both directions: Done closes it while no agent has acted yet, and the
+   * reopen chip brings it back for the day the loop drops and has to be
+   * restarted — including while a client is demonstrably there, which is
+   * exactly when a dropped loop happens.
+   */
+  const [promptChoice, setPromptChoice] = useState<'auto' | 'open' | 'closed'>('auto');
   const recognitionRef = useRef<Recognition | null>(null);
   const RecognitionCtor = useMemo(
     () => window.SpeechRecognition || window.webkitSpeechRecognition,
@@ -275,11 +296,11 @@ export default function AgentComposer() {
   }
 
   function dismissStarterPrompt() {
-    setPromptDismissed(true);
+    setPromptChoice('closed');
   }
 
   function restoreStarterPrompt() {
-    setPromptDismissed(false);
+    setPromptChoice('open');
   }
 
   function toggleSpeech() {
@@ -322,6 +343,8 @@ export default function AgentComposer() {
   // wrong one first and swapping it out under the reader.
   if (connected === null) return null;
 
+  const promptVisible = promptChoice === 'open' || (promptChoice === 'auto' && !active);
+
   if (!connected) {
     return (
       <AgentTarget
@@ -357,13 +380,13 @@ export default function AgentComposer() {
             Anything you send waits here until one does.
           </p>
         )}
-        {promptDismissed ? null : (
+        {promptVisible ? (
           <StarterPrompt
             dismissed={false}
             onDismiss={dismissStarterPrompt}
             onRestore={restoreStarterPrompt}
           />
-        )}
+        ) : null}
         <form className="prompt-form" onSubmit={submit}>
           <AgentInput
             agentId="prompt-input"
@@ -395,13 +418,13 @@ export default function AgentComposer() {
         </form>
         <div className="composer-footer">
           <p className="composer-notice" role="status" aria-live="polite">{notice}</p>
-          {promptDismissed ? (
+          {promptVisible ? null : (
             <StarterPrompt
               dismissed
               onDismiss={dismissStarterPrompt}
               onRestore={restoreStarterPrompt}
             />
-          ) : null}
+          )}
         </div>
       </aside>
     </AgentTarget>

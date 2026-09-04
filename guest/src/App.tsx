@@ -83,19 +83,11 @@ export default function App() {
 
       <AgentComposer />
 
+      {/* No terms link here: the header nav carries one on every route, and a
+          second copy a screen apart is just two ways to say the same thing. */}
       <footer>
         <span>© {new Date().getFullYear()} Formless Health</span>
-        <span>
-          Patient-authorized. Read-only. Built for clarity. ·{' '}
-          <RouteLink
-            to="/terms"
-            agentId="footer-terms"
-            agentLabel="Terms of service"
-            agentDescription="Goes to the terms of service."
-          >
-            Terms
-          </RouteLink>
-        </span>
+        <span>Patient-authorized. Read-only. Built by gip.</span>
       </footer>
 
       {/* Rendered last so it sits over whatever route is behind it. `showModal`
