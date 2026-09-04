@@ -59,6 +59,12 @@ export default function ExploreView() {
       ]);
       setRecord(nextRecord);
       setStatus(nextStatus);
+      // A refusal outliving its cause is worse than no message. `record.changed`
+      // fires on an access change as much as on a record change, so a refresh
+      // that gets an answer has just disproved whatever the last one was told —
+      // including "this version was published by someone else", which the host
+      // says during any moment it cannot yet name the loaded version's author.
+      setLoadError(undefined);
       // The host answers `record.get` with nothing while an import is running,
       // so a record in hand is proof the import is over and its progress panel
       // can give way to the record it was waiting for.

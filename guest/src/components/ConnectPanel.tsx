@@ -122,7 +122,12 @@ export default function ConnectPanel() {
 
   useEffect(
     () => onHostEvent('record.changed', () => {
-      hostAuth.status().then(setStatus, () => undefined);
+      // Clearing `statusError` for the reason `ExploreView.refresh()` clears
+      // `loadError`: an answer retracts the refusal that stood in its place.
+      hostAuth.status().then(
+        (value) => { setStatus(value); setStatusError(undefined); },
+        () => undefined,
+      );
     }),
     [],
   );
