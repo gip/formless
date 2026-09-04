@@ -34,12 +34,16 @@ import { AgentButton, AgentInput, AgentTarget, onHostEvent, sendUserMessage } fr
  * protocol reports no client arriving and none leaving, so the first tool call
  * is the only honest proof — see lib/agent-activity in the host.
  *
- * Either way the panel opens with the starter prompt. An attached client does
- * nothing on its own — it has not read the website prompt and is not polling —
- * so the first thing a person needs is the paragraph that starts the loop, in a
- * form they can copy in one click. It is also the one thing on screen that
- * stops being useful the moment it has been used, so it carries its own Done
- * button and folds away to a single word, leaving the composer its full height.
+ * The two panels with a bridge open with the starter prompt. An attached client
+ * does nothing on its own — it has not read the website prompt and is not
+ * polling — so the first thing a person needs is the paragraph that starts the
+ * loop, in a form they can copy in one click. It is also the one thing on
+ * screen that stops being useful the moment it has been used, so it carries its
+ * own Done button and folds away to a single word, leaving the composer its
+ * full height.
+ *
+ * The unsupported-browser panel omits it: there is no model on the other end to
+ * paste it into, so it would be a call to action with nowhere to go.
  */
 
 type RecognitionEvent = Event & {
@@ -333,11 +337,6 @@ export default function AgentComposer() {
             for one to connect through. Open the page in <strong>Codex</strong> or
             {' '}<strong>Chrome</strong> to use those features.
           </p>
-          <StarterPrompt
-            dismissed={promptDismissed}
-            onDismiss={dismissStarterPrompt}
-            onRestore={restoreStarterPrompt}
-          />
           <p className="composer-notice">Everything on this page works without an agent, too.</p>
         </aside>
       </AgentTarget>
