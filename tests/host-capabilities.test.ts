@@ -50,6 +50,7 @@ function stubHealth(): HealthPort {
     connected: true,
     provider: 'ucsf',
     record: 'unlocked' as const,
+    sample: false,
   };
   return {
     status: vi.fn(async () => status),
@@ -58,6 +59,7 @@ function stubHealth(): HealthPort {
     connect: vi.fn(async () => status),
     disconnect: vi.fn(async () => status),
     getRecord: vi.fn(async () => ({ schemaVersion: 1 })),
+    showSample: vi.fn(async () => status),
     unlock: vi.fn(async () => status),
     lock: vi.fn(async () => status),
     clear: vi.fn(async () => status),
@@ -209,6 +211,26 @@ describe('health passthrough', () => {
   it('defaults includeAttachments to false rather than passing it through loosely', async () => {
     await dispatchCapability(deps, 'auth.connect', { providerId: 'ucsf', includeAttachments: 'yes' });
     expect(health.connect).toHaveBeenCalledWith({ providerId: 'ucsf', includeAttachments: false });
+  });
+
+  it('passes the sample request through as a strict boolean', async () => {
+    await dispatchCapability(deps, 'record.sample', { show: true });
+    expect(health.showSample).toHaveBeenCalledWith(true);
+
+    // Anything that is not literally `true` reads as "put it away". The sample
+    // is a stranger's chart rendered under this app's headings, so a malformed
+    // param must never be the thing that puts it on screen.
+    await dispatchCapability(deps, 'record.sample', { show: 'yes' });
+    expect(health.showSample).toHaveBeenLastCalledWith(false);
+    await dispatchCapability(deps, 'record.sample');
+    expect(health.showSample).toHaveBeenLastCalledWith(false);
+  });
+
+  it('refuses the sample toggle to a version published by someone else', async () => {
+    grant = { scope: 'v1', privileged: false };
+    await expect(dispatchCapability(deps, 'record.sample', { show: true }))
+      .rejects.toThrow(/published by someone else/);
+    expect(health.showSample).not.toHaveBeenCalled();
   });
 });
 

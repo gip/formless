@@ -200,15 +200,24 @@ test('reads the health record through its tools, sample and all', async ({ page 
   await acceptTerms(preview);
   await expect(preview.getByRole('button', { name: 'Send to agent' })).toBeVisible({ timeout: 90_000 });
 
-  // With no Epic client id configured the host serves the de-identified sample,
-  // and every result has to say so — an agent presenting a stranger's history
-  // as the user's own is the worst failure these tools have.
+  // Nothing is stored in this browser and nobody has asked for the sample, so
+  // the tools report an empty record rather than reaching for the fixture.
   // `setHealthAccess` lands in a mount effect, so the first call can arrive
   // before the port exists.
   await expect.poll(
     async () => (await callTool(page, 'get_health_summary') as { ok: boolean }).ok,
     { timeout: 15_000 },
   ).toBe(true);
+  expect(await callTool(page, 'get_health_summary'))
+    .toMatchObject({ ok: true, source: 'none', reason: 'empty' });
+
+  // The person asks for the sample from the explorer, which is the only thing
+  // that arms it — no tool can. From then on every result has to say whose data
+  // it is: an agent presenting a stranger's history as the user's own is the
+  // worst failure these tools have.
+  await preview.getByRole('link', { name: 'Explore your record' }).click();
+  await preview.getByRole('button', { name: 'See a sample record' }).click();
+  await expect(preview.locator('.sample-banner')).toBeVisible({ timeout: 30_000 });
 
   const summary = await callTool(page, 'get_health_summary') as Record<string, unknown>;
   expect(summary).toMatchObject({ ok: true, source: 'sample' });
@@ -261,8 +270,17 @@ test('declares its routes and lets the agent navigate to the record explorer', a
   expect(await callTool(page, 'navigate_to_route', { path: '/explore' }))
     .toMatchObject({ ok: true, route: { path: '/explore' } });
 
-  // The record itself comes from the host over the capability bridge.
+  // Nothing has been imported into this browser, so the explorer is empty and
+  // stays that way. The de-identified fixture is behind a control the person
+  // has to press — it is never the default content of this route.
+  await expect(preview.getByRole('heading', { name: 'No record yet.', level: 1 })).toBeVisible({ timeout: 30_000 });
+  await expect(preview.getByRole('heading', { name: 'John Smith', level: 1 })).toHaveCount(0);
+
+  // Asked for, it arrives over the capability bridge — under a banner saying
+  // whose data it is not.
+  await preview.getByRole('button', { name: 'See a sample record' }).click();
   await expect(preview.getByRole('heading', { name: 'John Smith', level: 1 })).toBeVisible({ timeout: 30_000 });
+  await expect(preview.locator('.sample-banner')).toContainText('This is a sample record, not yours.');
   await expect(preview.getByText('Data available')).toBeVisible();
 
   // Instrumented explorer controls reach the agent as targets it can highlight.
@@ -280,6 +298,16 @@ test('declares its routes and lets the agent navigate to the record explorer', a
   const noteText = await preview.locator('dialog[open]').innerText();
   expect(noteText.length).toBeGreaterThan(200);
   expect(noteText).not.toContain('<br>');
+  // `showModal()` makes everything behind it inert, so the rest of the page is
+  // unclickable until this is closed.
+  await preview.getByRole('button', { name: 'Close note text' }).click();
+  await expect(preview.locator('dialog[open]')).toHaveCount(0);
+
+  // And it goes away again, leaving the empty explorer it stood in for.
+  // Named by its `agentLabel`: `AgentButton` puts that on `aria-label`, which
+  // wins over the visible text for the accessible name.
+  await preview.getByRole('button', { name: 'Hide the sample record' }).click();
+  await expect(preview.getByRole('heading', { name: 'No record yet.', level: 1 })).toBeVisible();
 
   expect(await callTool(page, 'navigate_to_route', { path: '/nowhere' }))
     .toMatchObject({ ok: false, error: expect.stringContaining('Unknown route') });
@@ -293,7 +321,19 @@ test('shows the record view filling up while the host imports', async ({ page })
   // readiness signal that does not depend on whether a client is attached.
   await expect(preview.getByRole('link', { name: 'Explore your record' })).toBeVisible({ timeout: 90_000 });
   await acceptTerms(preview);
-  // The app starts on the landing page, and nothing has moved it.
+
+  // This test narrates an import the host never ran, so nothing is ever stored
+  // and the explorer would have nothing to land on at the end. Arming the
+  // sample first gives the run a real document to finish on — what is under
+  // test is that the progress panel holds until a record is on screen, not
+  // which record it turns out to be.
+  await preview.getByRole('link', { name: 'Explore your record' }).click();
+  await preview.getByRole('button', { name: 'See a sample record' }).click();
+  await expect(preview.getByRole('heading', { name: 'John Smith', level: 1 }))
+    .toBeVisible({ timeout: 30_000 });
+
+  // Back to the landing page, which is where a real sign-in returns the user.
+  await preview.getByRole('link', { name: 'Home' }).click();
   await expect(preview.getByRole('heading', { name: 'Downloading your record' })).toHaveCount(0);
 
   // A download starting takes the user to the record view on its own: the
@@ -325,6 +365,8 @@ test('shows the record view filling up while the host imports', async ({ page })
   await expect(preview.getByRole('heading', { name: 'John Smith', level: 1 }))
     .toBeVisible({ timeout: 30_000 });
   await expect(preview.getByText('Data available')).toBeVisible();
+  // Landing on a record does not quietly drop the caption saying whose it is.
+  await expect(preview.locator('.sample-banner')).toContainText('This is a sample record, not yours.');
 });
 
 test('speaks agent text through the page and stops on request', async ({ page }) => {

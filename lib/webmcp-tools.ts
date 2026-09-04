@@ -115,8 +115,10 @@ function explainMissingRecord(snapshot: HealthSnapshot): string {
       return 'A record is being downloaded right now. Wait for the import to finish, then ask again.';
     case 'locked':
       return 'The stored record is locked. Ask the user to unlock it from the app — the passphrase prompt is host chrome, so an agent cannot open it.';
+    case 'empty':
+      return 'Nothing has been imported into this browser. Ask the user to connect a provider from the app\'s landing page; sign-in needs a real click, so an agent cannot start it. There is a de-identified sample behind "See a sample record" in the explorer, but that is the user\'s call to make, not yours to make for them.';
     default:
-      return 'There is no record to read. Ask the user to connect a provider from the app\'s landing page; sign-in needs a real click, so an agent cannot start it.';
+      return 'There is a record in this browser and it could not be opened. Do not describe any health data; tell the user the stored record could not be read, and that removing it from the explorer and importing again is the way back.';
   }
 }
 

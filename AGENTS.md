@@ -109,7 +109,8 @@ A version is **the editable overlay only** — `extractOverlay()` / `validateOve
 Protocol constant `webmcp-canvas/v1` is duplicated: `BRIDGE_PROTOCOL` in `lib/canvas-types.ts` and a `PROTOCOL` literal in `guest/src/agent/bridge.tsx`. Change both together.
 
 - Host → guest: `highlight`, `clear-highlight`, posted to the exact preview origin.
-- Guest → host: `registry` (instrumented element descriptors), `coverage` (instrumentation audit result), `user-message` (typed / final-speech text).
+- Guest → host: `registry` (instrumented element descriptors), `coverage` (instrumentation audit result), `user-message` (typed / final-speech text), `route` (the guest's current fragment).
+- **The preview frame's `src` carries the guest's route, and is set in `attachPreview`, not in JSX.** The host re-creates the element whenever `allow`, the preview URL, or `previewNonce` changes — the last of which is the ack watchdog firing on a version switch the guest never acknowledged. A new element starts at whatever `src` it is given, and the host cannot read a cross-origin frame's location, so every re-creation used to return the reader to the landing page mid-task. `src/agent/bridge.tsx` reports the fragment on `hashchange` and on `load`; the host keeps it in `guestHashRef` and appends it when it builds a new element. Two rules hold it together: the reporting lives in the bridge because that is a *protected* path (`mergeSnapshot()` re-derives it from the starter, so versions published before this existed and versions whose router an agent rewrote all report), and the value is sanitized by `safeHash()` before it goes near a URL, because the guest is untrusted code. Setting `src` as a React prop is the bug this replaced: `guestHashRef` moves without re-rendering, so the prop would either be stale or reload a live frame the next time anything re-rendered the host. `e2e/versions.spec.ts` pins it on the switch that changes `allow`, which re-creates the element deterministically.
 - Host origin reaches the guest via the `?canvasHost=` query param on the iframe `src`; the guest pins `hostOrigin` from it. Host-side, `isTrustedPreviewMessage` requires matching source window **and** exact origin **and** protocol — do not relax any of the three.
 
 Guest UI is instrumented with `AgentTarget` / `AgentButton` / `AgentInput` from `src/agent/bridge.tsx`; the guest's `scripts/audit-ui.mjs` fails validation on any raw `<button>`/`<input>`/`<a>` JSX or duplicate `agentId`, so agent-authored guest UI must use the wrappers. `scripts/validate-syntax.mjs` transpile-checks all guest `src/**/*.ts(x)` — syntax only, not full type-checking.
@@ -129,7 +130,7 @@ is the guest half. Both are protected files.
   `manifest` simply declares no routes, and one that ignores the import events
   simply does not narrate the download.
 - Methods: `state.get/set/delete`, `auth.status/connect/disconnect`,
-  `record.get/unlock/lock/clear/download`.
+  `record.get/sample/unlock/lock/clear/download`.
 - **`computeGrant()` is the security boundary.** The starter and versions *you*
   published are privileged; anything else gets namespaced `state.*` and is
   refused `auth.*` and `record.*` outright. This is the same rule `previewAllow`
@@ -176,11 +177,26 @@ verbatim, `types.ts`/`storage.ts`/`session.ts`/`import.ts` are adapted.
   activation, so a popup opened from a tool call is blocked. Auth stays a user
   gesture; the agent's role is `navigate_to_route` and highlighting.
 - `NEXT_PUBLIC_EPIC_CLIENT_ID` enables it. Missing config is a **soft failure**: the
-  connect panel says so and `/explore` still serves `public/demo/`'s
-  de-identified sample. Never make the canvas depend on it.
+  connect panel says so and `/explore` can still be reviewed against
+  `public/demo/`'s de-identified sample. Never make the canvas depend on it.
 - The demo fixture lives in the **host's** `public/`, not the guest's: at ~4.5MB
   it would exceed the overlay limits (256KB/file, 1MB/batch) and the 2MB publish
   body cap.
+- **The sample is opt-in, and only ever opt-in.** `record.sample` is the one
+  thing that arms it; `createHealthPort` serves it only while armed *and* the
+  store is empty *and* no import is running, and connecting, unlocking or
+  clearing disarms it. It used to be the automatic answer whenever the store was
+  empty, which quietly made a fictional patient the default content of
+  `/explore` — a version switch rewrites `src/**`, Vite full-reloads the guest,
+  and the reload restores `#/explore` straight from the iframe's URL, so anyone
+  who had ever opened the explorer came back to a stranger's chart under the
+  headings a real import uses. The guest captions it from `AuthStatus.sample`,
+  never by inspecting the document: the fixture is shaped exactly like a real
+  export. An empty store is now `source: 'none', reason: 'empty'`, and
+  `unavailable` means the broken case — a store that exists and will not open,
+  which used to fall through to the sample and get captioned "Your imported
+  record", since `connected` is true for any non-empty store.
+  `tests/health-port.test.ts` pins all of it.
 - **The import narrates itself to the guest.** A real export is 27 searches and
   thousands of resources over a minute or more, so the guest switches to its
   record view when the download starts and shows the count climbing:
@@ -191,8 +207,9 @@ verbatim, `types.ts`/`storage.ts`/`session.ts`/`import.ts` are adapted.
   results, so unthrottled that is hundreds of `postMessage`s per import.
   Two rules make it safe. `createHealthPort` answers `record.get` with
   **nothing** while an import is running: the store is still `empty` for that
-  whole window, so the fallback would otherwise hand the guest the
-  de-identified sample to show under the patient's own heading. And
+  whole window, so a user who had the sample on screen would otherwise keep a
+  stranger's chart under the patient's own heading while their own download
+  runs. And
   `import.finished` carries the failure when there is one — by then the guest
   may have left the landing page, which is the only place a connect error is
   rendered.
@@ -212,7 +229,9 @@ verbatim, `types.ts`/`storage.ts`/`session.ts`/`import.ts` are adapted.
   exists for the same reason `getRecord()` is not enough — it says *which*
   record came back (`connected` / `sample` / `none` plus a reason), and an agent
   narrating the de-identified fixture as the user's history is the worst outcome
-  this feature has.
+  this feature has. The agent cannot arm the sample either: `record.sample` is a
+  bridge method the guest calls from a control the user pressed, and no tool
+  exposes it.
 - **Note text is now kept.** `import.ts` reads `text/html` and `text/plain`
   attachment bodies into `HealthAttachmentSummary.text` (256KB per note, 8MB
   total, soft-failing into `errors.Binary`) — reversing the earlier

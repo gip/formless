@@ -11,6 +11,7 @@ import {
   recordState,
   storedProvider,
   unlockRecord,
+  type RecordState,
 } from './storage';
 import type { HealthExportDocument } from './types';
 
@@ -24,9 +25,9 @@ import type { HealthExportDocument } from './types';
  * leak, or be tricked into leaking, credentials.
  *
  * With no Epic client id configured this degrades the way the versions API
- * already does: everything answers, `configured` is false, and the demo record
- * stands in for a real one. `AGENTS.md`: never make the canvas depend on the
- * backend being present.
+ * already does: everything answers, `configured` is false, and the explorer is
+ * still reviewable — via the de-identified sample, which the user asks for by
+ * name. `AGENTS.md`: never make the canvas depend on the backend being present.
  */
 
 export interface HealthHostHooks {
@@ -126,17 +127,40 @@ export function createHealthPort(hooks: HealthHostHooks): HealthPort {
   let cachedRecord: HealthExportDocument | undefined;
   /**
    * True from the first FHIR request until the record is stored. The store is
-   * still `empty` for that whole window, so without this `getRecord()` would
-   * answer with the de-identified sample — and the guest, which switches to the
-   * record view when the download starts, would show a stranger's data under
-   * the patient's own heading. Refusing here rather than in the guest keeps it
-   * true for guest code an agent rewrote.
+   * still `empty` for that whole window, so without this a user who had the
+   * sample on screen would keep it there — a stranger's data under the
+   * patient's own heading, while their own download runs. Refusing here rather
+   * than in the guest keeps it true for guest code an agent rewrote.
    *
    * Deliberately not set for the whole of `connect()`: while the user is still
-   * signing in, nothing has changed and the sample record is still the honest
-   * answer to `getRecord()`.
+   * signing in, nothing has been downloaded and whatever they were looking at
+   * is still the honest answer to `getRecord()`.
    */
   let importing = false;
+  /**
+   * Whether the user has asked to see the de-identified sample.
+   *
+   * The sample used to be served automatically whenever the store was empty,
+   * which made it the default content of `/explore` — so anything that put a
+   * fresh guest on that route showed a stranger's history under the same
+   * headings a real import uses. A version switch does exactly that: it
+   * rewrites `src/**`, Vite full-reloads the guest, and the reload restores
+   * `#/explore` from the iframe's own URL.
+   *
+   * Now nothing but `showSample(true)` turns it on, and it is a per-session
+   * decision: it is not persisted, and anything that produces a real record —
+   * or removes one — turns it back off.
+   */
+  let sampleVisible = false;
+
+  /**
+   * The one place that decides whether the sample is on screen, so `status()`
+   * and `currentSnapshot()` cannot disagree about it. An import in flight or a
+   * record on disk always outranks the request.
+   */
+  function showingSample(state: RecordState): boolean {
+    return sampleVisible && !importing && state === 'empty';
+  }
 
   async function status(): Promise<AuthStatus> {
     const state = await recordState();
@@ -146,6 +170,7 @@ export function createHealthPort(hooks: HealthHostHooks): HealthPort {
       connected: state !== 'empty',
       provider: await storedProvider(),
       record: state,
+      sample: showingSample(state),
     };
   }
 
@@ -167,8 +192,18 @@ export function createHealthPort(hooks: HealthHostHooks): HealthPort {
     if (state === 'locked') return { status: base, source: 'none', reason: 'locked' };
     if (state === 'unlocked') {
       cachedRecord ??= await loadRecord();
-      if (cachedRecord) return { status: base, source: 'connected', record: cachedRecord };
+      // A store that says it is unlocked and will not decrypt is broken, not
+      // empty. This used to fall through to the sample, and because `connected`
+      // is true for any non-empty store the explorer then captioned a
+      // stranger's history "Your imported record" — the exact confusion the
+      // locked branch above refuses to create.
+      return cachedRecord
+        ? { status: base, source: 'connected', record: cachedRecord }
+        : { status: base, source: 'none', reason: 'unavailable' };
     }
+    // Nothing stored. The sample is a thing the user asks for, never the
+    // default answer — see `sampleVisible`.
+    if (!showingSample(state)) return { status: base, source: 'none', reason: 'empty' };
     const demo = await loadDemoRecord();
     return demo
       ? { status: base, source: 'sample', record: demo }
@@ -199,6 +234,9 @@ export function createHealthPort(hooks: HealthHostHooks): HealthPort {
       const passphrase = await hooks.requestPassphrase('create');
       if (passphrase === null) throw new Error('Connection cancelled.');
 
+      // The user's own record is about to arrive; the stand-in has no more work
+      // to do, and leaving it armed would put it back on screen if this fails.
+      sampleVisible = false;
       try {
         cachedRecord = await hooks.runConnect({
           providerId,
@@ -215,6 +253,7 @@ export function createHealthPort(hooks: HealthHostHooks): HealthPort {
 
     async disconnect() {
       cachedRecord = undefined;
+      sampleVisible = false;
       await clearRecord();
       hooks.emit('record.changed');
       return status();
@@ -224,11 +263,25 @@ export function createHealthPort(hooks: HealthHostHooks): HealthPort {
       return currentRecord();
     },
 
+    /**
+     * The sample is shown only from here, and only ever because a person
+     * clicked the control that calls it. It is refused outright once a record
+     * exists in this browser: the explorer would not show it anyway, and
+     * answering `true` would leave the guest rendering a caption for something
+     * that is not on screen.
+     */
+    async showSample(show) {
+      sampleVisible = show && (await recordState()) === 'empty';
+      hooks.emit('record.changed');
+      return status();
+    },
+
     async unlock() {
       if ((await recordState()) !== 'locked') return status();
       const passphrase = await hooks.requestPassphrase('unlock');
       if (passphrase === null) throw new Error('Unlock cancelled.');
       cachedRecord = await unlockRecord(passphrase);
+      sampleVisible = false;
       hooks.emit('record.changed');
       return status();
     },
@@ -242,6 +295,8 @@ export function createHealthPort(hooks: HealthHostHooks): HealthPort {
 
     async clear() {
       cachedRecord = undefined;
+      // Removing your data must not hand you someone else's in its place.
+      sampleVisible = false;
       await clearRecord();
       hooks.emit('record.changed');
       return status();
