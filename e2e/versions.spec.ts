@@ -130,6 +130,17 @@ test('keeps talking to the preview across a switch that re-creates the frame', a
   await expect(ready).toBeVisible({ timeout: 90_000 });
   await expect(composer).toBeVisible({ timeout: 90_000 });
 
+  // Go somewhere inside the guest before the switch. Re-creating the element is
+  // what used to lose that: a new frame starts at the `src` the host gives it,
+  // and the host cannot read a cross-origin frame's location, so whoever was
+  // reading their record was silently returned to the landing page. The guest
+  // reports its fragment from `src/agent/bridge.tsx` — a protected path, so
+  // every version does it — and the host puts it back on the new element.
+  await acceptTerms(preview);
+  await preview.getByRole('link', { name: 'Explore your record' }).click();
+  await expect(preview.getByRole('heading', { name: 'No record yet.', level: 1 }))
+    .toBeVisible({ timeout: 30_000 });
+
   await trigger.click();
   await page.getByRole('menuitem', { name: /Default app/ }).click();
   await expect(trigger).toContainText('Default app', { timeout: 30_000 });
@@ -146,8 +157,12 @@ test('keeps talking to the preview across a switch that re-creates the frame', a
   // terms gate, which is answered here for the starter's own scope, is one of
   // the things riding that channel.
   await acceptTerms(preview);
-  await preview.getByRole('link', { name: 'Explore your record' }).click();
   await expect(preview.getByText('Opening your record…')).toHaveCount(0, { timeout: 15_000 });
+
+  // Still on the record explorer, on the other side of a frame the host threw
+  // away and rebuilt — not back on the landing page.
+  await expect(preview.getByRole('heading', { name: 'No record yet.', level: 1 })).toBeVisible();
+  await expect(preview.getByRole('heading', { name: /See what happened in your care/ })).toHaveCount(0);
 
   await request.delete(`/api/versions/${versionId}`, {
     headers: { authorization: `Bearer ${authorToken}` },

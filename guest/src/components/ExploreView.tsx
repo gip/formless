@@ -46,7 +46,7 @@ export default function ExploreView() {
   const [selectedKey, setSelectedKey] = useState<string>();
   const [resourceIndex, setResourceIndex] = useState(0);
   const [view, setView] = useState<DataView>('rendered');
-  const [busy, setBusy] = useState<'download' | 'clear' | 'lock' | 'unlock'>();
+  const [busy, setBusy] = useState<'download' | 'clear' | 'lock' | 'unlock' | 'sample'>();
   const [attachmentTextLoading, setAttachmentTextLoading] = useState<AttachmentTextView>();
   const [textPreview, setTextPreview] = useState<TextPreview>();
   const importState = useImportState();
@@ -125,6 +125,26 @@ export default function ExploreView() {
       if (kind !== 'download') await refresh();
     } catch (caught) {
       setLoadError(caught instanceof Error ? caught.message : 'That did not work.');
+    } finally {
+      setBusy(undefined);
+    }
+  }
+
+  /**
+   * Asks the host for the de-identified sample, or puts it away again.
+   *
+   * Separate from `run()` because it is the one action that takes an argument,
+   * and because it is the only path by which a record that is not the user's
+   * can reach this page at all — worth reading as its own thing.
+   */
+  async function toggleSample(show: boolean) {
+    setBusy('sample');
+    setLoadError(undefined);
+    try {
+      setStatus(await hostRecord.sample(show));
+      await refresh();
+    } catch (caught) {
+      setLoadError(caught instanceof Error ? caught.message : 'The sample record is not available.');
     } finally {
       setBusy(undefined);
     }
@@ -213,18 +233,45 @@ export default function ExploreView() {
         {/* An import that failed after the view switched here left its message in
             the store; without it this page would explain nothing. */}
         <p>{loadError ?? importState.error ?? 'Connect MyChart to import a record into this browser.'}</p>
-        <RouteLink
-          to="/"
-          agentId="explore-import-cta"
-          agentLabel="Import from MyChart"
-          agentDescription="Returns to the landing page to start the MyChart import."
-          className="button primary"
-        >
-          Import from MyChart
-        </RouteLink>
+        <div className="explore-empty-actions">
+          <RouteLink
+            to="/"
+            agentId="explore-import-cta"
+            agentLabel="Import from MyChart"
+            agentDescription="Returns to the landing page to start the MyChart import."
+            className="button primary"
+          >
+            Import from MyChart
+          </RouteLink>
+          {/* The only way the de-identified fixture reaches this page. It is
+              offered, never assumed: someone who has not imported anything is
+              looking at an empty explorer, not asking to read a stranger's
+              chart. Hidden once a record exists, where the host refuses it. */}
+          {status?.record === 'empty' ? (
+            <AgentButton
+              agentId="explore-show-sample"
+              agentLabel="See a sample record"
+              agentDescription="Loads the de-identified demo record so the explorer can be reviewed without connecting a provider. It is not the user's own data."
+              className="button secondary"
+              type="button"
+              disabled={busy !== undefined}
+              onClick={() => { void toggleSample(true); }}
+            >
+              {busy === 'sample' ? 'Loading sample…' : 'See a sample record'}
+            </AgentButton>
+          ) : null}
+        </div>
       </main>
     );
   }
+
+  /**
+   * True only when the host says the document on screen is the fixture. Read
+   * off the status rather than sniffed out of the record, because the record
+   * itself carries nothing that marks it as a sample — it is shaped exactly
+   * like a real export, which is the whole reason it needs saying out loud.
+   */
+  const showingSample = status?.sample === true;
 
   const selectedPosition = Math.min(resourceIndex, activeGroup.resources.length - 1);
   const displayResource = activeGroup.resources[selectedPosition];
@@ -232,9 +279,34 @@ export default function ExploreView() {
 
   return (
     <main className="explore-shell">
+      {showingSample ? (
+        <div className="sample-banner" role="status">
+          <div>
+            <strong>This is a sample record, not yours.</strong>
+            <span>
+              De-identified demo data for a fictional patient, shown because you asked to see
+              one. Nothing here came from your provider.
+            </span>
+          </div>
+          <AgentButton
+            agentId="explore-hide-sample"
+            agentLabel="Hide the sample record"
+            agentDescription="Puts the de-identified demo record away and returns the explorer to its empty state."
+            className="button secondary"
+            type="button"
+            disabled={busy !== undefined}
+            onClick={() => { void toggleSample(false); }}
+          >
+            {busy === 'sample' ? 'Hiding…' : 'Hide sample'}
+          </AgentButton>
+        </div>
+      ) : null}
+
       <section className="explore-heading">
         <div>
-          <p className="eyebrow">{status?.connected ? 'Your imported record' : 'Sample record'}</p>
+          <p className={showingSample ? 'eyebrow sample-eyebrow' : 'eyebrow'}>
+            {showingSample ? 'Sample record — not your data' : 'Your imported record'}
+          </p>
           <AgentTarget
             agentId="explore-patient-name"
             label="Patient name"
@@ -329,9 +401,9 @@ export default function ExploreView() {
             ))}
           </div>
           <p className="local-data-note">
-            {status?.connected
-              ? 'This record is encrypted and stored only in this browser. Download a backup or remove it when you are finished.'
-              : 'This is a de-identified sample record, shown because no MyChart record has been imported.'}
+            {showingSample
+              ? 'A de-identified sample, kept in the app itself. Nothing about it is stored, and it goes away when you hide it.'
+              : 'This record is encrypted and stored only in this browser. Download a backup or remove it when you are finished.'}
           </p>
         </aside>
 

@@ -42,18 +42,29 @@ export interface AuthStatus {
   provider: string | null;
   /** `empty` | `locked` | `unlocked` — mirrors the record's storage state. */
   record: 'empty' | 'locked' | 'unlocked';
+  /**
+   * Whether the de-identified fixture is standing in for a record right now.
+   *
+   * Only ever true because the person at this browser asked for it. The sample
+   * used to be served whenever the store was empty, which meant a stranger's
+   * history rendered under the same headings as the user's own the moment
+   * anything reloaded the explorer — a version switch, most often. Nothing
+   * turns it on but `record.sample`, and connecting, unlocking, or clearing
+   * turns it back off.
+   */
+  sample: boolean;
 }
 
 /**
  * What the host knows about the record right now, including *which* record.
  *
- * `getRecord()` cannot answer that: it falls back to the de-identified sample
- * whenever the store is empty, and returns nothing at all while an import is
- * running or the store is locked — three very different situations that look
- * identical to a caller. The guest does not need to tell them apart, because
- * it renders connection state from `AuthStatus` anyway. A tool does: an agent
- * narrating the sample as the user's own history is the worst thing this
- * feature can do.
+ * `getRecord()` cannot answer that: it returns the de-identified sample when the
+ * user has asked to see one, and nothing at all while an import is running, or
+ * the store is locked, or there is simply nothing stored — four very different
+ * situations that look identical to a caller. The guest does not need to tell
+ * them apart, because it renders connection state from `AuthStatus` anyway. A
+ * tool does: an agent narrating the sample as the user's own history is the
+ * worst thing this feature can do.
  *
  * `record` is typed `unknown` for the same reason `getRecord()` is — this
  * module stays free of `lib/health/**` imports so it can be exercised against
@@ -62,8 +73,14 @@ export interface AuthStatus {
 export interface HealthSnapshot {
   status: AuthStatus;
   source: 'connected' | 'sample' | 'none';
-  /** Why there is no record. Only set when `source` is `none`. */
-  reason?: 'locked' | 'importing' | 'unavailable';
+  /**
+   * Why there is no record. Only set when `source` is `none`.
+   *
+   * `empty` is the ordinary case — nothing has been imported into this browser
+   * and the sample has not been asked for. `unavailable` is the broken one: a
+   * store that exists and will not open, or a missing fixture.
+   */
+  reason?: 'locked' | 'importing' | 'empty' | 'unavailable';
   record?: unknown;
 }
 
@@ -85,6 +102,11 @@ export interface HealthPort {
   connect(params: { providerId: string; includeAttachments: boolean }): Promise<AuthStatus>;
   disconnect(): Promise<AuthStatus>;
   getRecord(): Promise<unknown>;
+  /**
+   * Shows or hides the de-identified sample in place of a record. The guest
+   * calls this from an explicit control; nothing else may set it.
+   */
+  showSample(show: boolean): Promise<AuthStatus>;
   unlock(): Promise<AuthStatus>;
   lock(): Promise<AuthStatus>;
   clear(): Promise<AuthStatus>;
@@ -220,6 +242,9 @@ export async function dispatchCapability(
 
     case 'record.get':
       return deps.health.getRecord();
+
+    case 'record.sample':
+      return deps.health.showSample(params?.show === true);
 
     case 'record.unlock':
       return deps.health.unlock();

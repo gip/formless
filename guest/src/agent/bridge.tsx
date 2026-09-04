@@ -365,6 +365,16 @@ export interface AuthStatus {
   connected: boolean;
   provider: string | null;
   record: 'empty' | 'locked' | 'unlocked';
+  /**
+   * Whether what `record.get` is handing back is the de-identified sample
+   * rather than the user's own history. Only true after someone asked for it
+   * through `hostRecord.sample(true)`.
+   *
+   * Absent from hosts older than this field, so read it as `=== true`: a stale
+   * host answering `undefined` means "not a sample", which is the safe reading
+   * for every version published before the control existed.
+   */
+  sample?: boolean;
 }
 
 /** One selectable organization, as the host describes it. */
@@ -399,6 +409,16 @@ export const hostAuth = {
 
 export const hostRecord = {
   get: <T,>() => hostRequest<T | undefined>('record.get'),
+  /**
+   * Asks for (or dismisses) the de-identified sample record.
+   *
+   * The host serves it only while this is on and nothing real is stored, so
+   * this is the *only* way a sample reaches the page. Call it from a control
+   * the user pressed, never on mount: rendering someone else's history under
+   * this app's headings unasked is the one thing the record explorer must not
+   * do.
+   */
+  sample: (show: boolean) => hostRequest<AuthStatus>('record.sample', { show }),
   unlock: () => hostRequest<AuthStatus>('record.unlock', undefined, AUTH_TIMEOUT_MS),
   lock: () => hostRequest<AuthStatus>('record.lock'),
   clear: () => hostRequest<AuthStatus>('record.clear'),
@@ -480,10 +500,33 @@ window.addEventListener('message', (event) => {
   }
 });
 
+/**
+ * Tells the host which route this app is on.
+ *
+ * The host re-creates the preview frame whenever a change did not visibly reach
+ * it — a version switch that leaves the dev server unresponsive is the common
+ * one — and a new frame starts at whatever `src` the host gives it. Nothing in
+ * that `src` used to carry the fragment, and the host cannot read a
+ * cross-origin frame's location, so every re-creation silently dropped the
+ * reader back on the landing page. This is how the host knows where they were.
+ *
+ * It lives in the bridge rather than in the router because the bridge is a
+ * protected path: `mergeSnapshot()` re-derives it from the starter for every
+ * version, so this reports for versions published before it existed and for
+ * versions whose own router an agent rewrote.
+ */
+function reportRoute() {
+  post('route', { hash: window.location.hash });
+}
+
+window.addEventListener('hashchange', reportRoute);
+
 window.addEventListener('load', () => {
   const uncovered = Array.from(document.querySelectorAll('button,input,textarea,select,a[href],[role="button"]'))
     .filter((node) => !(node as HTMLElement).dataset.agentTarget)
     .map((node) => node.tagName.toLowerCase());
   post('coverage', { valid: uncovered.length === 0, uncovered });
   publishRegistry();
+  // So the host's memory starts out true rather than assuming the landing page.
+  reportRoute();
 });

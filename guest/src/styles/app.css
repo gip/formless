@@ -206,6 +206,18 @@ h1 { max-width: 760px; margin: 0; font-family: var(--serif); font-size: var(--te
 .explore-empty h1 { max-width: 700px; font-size: var(--text-display-md); }
 .explore-empty > p:not(.eyebrow) { max-width: 520px; margin: 24px auto; color: var(--muted); line-height: 1.65; }
 .explore-empty .button { margin-top: 8px; }
+.explore-empty-actions { display: flex; align-items: center; justify-content: center; gap: 14px; flex-wrap: wrap; }
+
+/* Sample record. Warning-toned on purpose: it is shaped exactly like a real
+   export, so the only thing separating a fictional patient's chart from the
+   reader's own is this banner saying so. */
+.sample-banner { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 30px; padding: 16px 20px; border: 1px solid var(--warning-line); border-radius: var(--radius-md); background: var(--warning-soft); color: var(--warning); }
+.sample-banner > div { display: flex; flex-direction: column; gap: 4px; text-align: left; }
+.sample-banner strong { font-size: var(--text-md); }
+.sample-banner span { font-size: var(--text-sm); line-height: 1.5; opacity: .9; }
+.sample-banner .button { flex: 0 0 auto; min-height: 40px; margin: 0; border-color: var(--warning-line); color: var(--warning); }
+.sample-banner .button:hover { border-color: var(--warning); }
+.sample-eyebrow { color: var(--warning); }
 .unlock-card { width: min(620px, 100%); padding: 42px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--card); }
 .unlock-card h1 { font-size: var(--text-display-sm); }
 .unlock-card > p:not(.eyebrow) { max-width: 510px; margin: 22px auto 0; color: var(--muted); line-height: 1.6; }
@@ -261,6 +273,7 @@ h1 { max-width: 760px; margin: 0; font-family: var(--serif); font-size: var(--te
   .provider-picker { max-width: none; grid-template-columns: 1fr; gap: 11px; }
   .button { width: 100%; }
   .callback-card { padding: 36px 22px; }
+  .sample-banner { align-items: flex-start; flex-direction: column; gap: 14px; }
   .unlock-card { padding: 32px 20px; }
   .import-card { padding: 32px 20px; }
   .import-count strong { font-size: 36px; }

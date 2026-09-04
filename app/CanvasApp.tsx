@@ -75,6 +75,22 @@ function emitHostEvent(event: string, payload?: unknown): void {
 }
 
 /**
+ * The fragment the guest last reported, cleaned up before it is pasted back
+ * into a URL.
+ *
+ * The guest is untrusted code by construction, and this value ends up in the
+ * preview frame's `src`, so it accepts only what a hash route can legitimately
+ * be made of and drops anything else on the floor. An empty string is always a
+ * valid answer: it means "start at the top of the app", which is exactly the
+ * behaviour this replaced.
+ */
+const SAFE_HASH = /^#[A-Za-z0-9._~/-]{0,256}$/;
+
+function safeHash(value: unknown): string {
+  return typeof value === 'string' && SAFE_HASH.test(value) ? value : '';
+}
+
+/**
  * The `mcp.status` answer, in one place because two code paths send it: the
  * reply to the guest's manifest, and the push for a bridge that attaches late.
  *
@@ -146,6 +162,15 @@ export default function CanvasApp() {
   const [previewNonce, setPreviewNonce] = useState(0);
   const guestSpokeRef = useRef(0);
   const frameSettledRef = useRef(false);
+  /**
+   * Where the reader is inside the guest, as the guest last reported it.
+   *
+   * A ref rather than state on purpose: this moves on every in-app navigation,
+   * and re-rendering the host for that would be pure waste — nothing on this
+   * page displays it. It is read at exactly one moment, when a new preview
+   * element is created and needs a `src`.
+   */
+  const guestHashRef = useRef('');
   const ackedRevisionRef = useRef<{ previewUrl: string; revision: number } | null>(null);
 
   /**
@@ -357,6 +382,9 @@ export default function CanvasApp() {
           messageQueue.add(payload.text, payload.source);
         } catch { /* Empty preview messages are ignored. */ }
       }
+      if (event.data.type === 'route') {
+        guestHashRef.current = safeHash(payload?.hash);
+      }
       if (event.data.type === 'manifest') {
         guestSpokeRef.current += 1;
         frameSettledRef.current = true;
@@ -413,6 +441,15 @@ export default function CanvasApp() {
    * agent is connected, and every `host-request` hangs until its own timeout.
    * Only a full page reload cleared it. The element is the thing that changes,
    * so the element is what the target has to be attached to.
+   *
+   * It is also where the frame's `src` is set, rather than in the JSX below.
+   * The URL carries the route the reader was on, and `guestHashRef` moves
+   * without re-rendering the host — as a prop that value would either be read
+   * too early and go stale, or change under a live frame the next time
+   * anything re-rendered this page and reload it out from under them. Setting
+   * it here binds it to the one moment it is right: the creation of the
+   * element. Re-creating the element is precisely what loses the route, so
+   * these two facts belong in the same place.
    */
   const attachPreview = useCallback((node: HTMLIFrameElement | null) => {
     iframeRef.current = node;
@@ -420,9 +457,16 @@ export default function CanvasApp() {
     // says when it lands describes the code it started with. `frameSettledRef`
     // is what keeps that from being read as proof about a later revision.
     if (node) frameSettledRef.current = false;
+    // Only ever on a brand-new element. This callback also re-runs when its own
+    // identity changes, and assigning `src` again there would reload a frame
+    // that is already showing the right thing.
+    if (node && runtime.previewUrl && !node.getAttribute('src')) {
+      const host = encodeURIComponent(window.location.origin);
+      node.setAttribute('src', `${runtime.previewUrl}/?canvasHost=${host}${guestHashRef.current}`);
+    }
     const frameWindow = node?.contentWindow ?? null;
     setPreviewTarget(frameWindow && previewOrigin ? { window: frameWindow, origin: previewOrigin } : null);
-  }, [previewOrigin]);
+  }, [previewOrigin, runtime.previewUrl]);
 
   /**
    * Re-mounts the preview when a revision moved and the guest never answered.
@@ -704,7 +748,9 @@ export default function CanvasApp() {
                 // `allow` is read at load, so it has to be part of the key.
                 // So is the nonce: bumping it is how a stale preview is reloaded.
                 key={`${runtime.previewUrl}|${previewAllow}|${previewNonce}`}
-                src={`${runtime.previewUrl}/?canvasHost=${encodeURIComponent(window.location.origin)}`}
+                // No `src` here on purpose — `attachPreview` sets it, because it
+                // has to carry the route the reader was on and that is not
+                // render state. See the comment there.
                 title="Editable WebMCP application preview"
                 allow={previewAllow}
               />
