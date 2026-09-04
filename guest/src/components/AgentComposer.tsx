@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 
-import { AgentButton, AgentInput, AgentTarget, onHostEvent, sendUserMessage } from '../agent/bridge';
+import { AgentButton, AgentTarget, AgentTextarea, onHostEvent, sendUserMessage } from '../agent/bridge';
 
 /**
  * The user's channel to the agent, docked on every route.
@@ -285,7 +285,9 @@ export default function AgentComposer() {
     };
   }, []);
 
-  function submit(event: FormEvent) {
+  // Reached from the form's own submit and from Enter in the textarea, so it
+  // asks for nothing more than the one thing both events share.
+  function submit(event: FormEvent | KeyboardEvent<HTMLTextAreaElement>) {
     event.preventDefault();
     if (!prompt.trim()) return;
     sendUserMessage(prompt, 'typed');
@@ -293,6 +295,24 @@ export default function AgentComposer() {
       ? 'Sent to the agent queue.'
       : 'Queued. It will be delivered when an agent picks it up.');
     setPrompt('');
+  }
+
+  /**
+   * Keeps Enter meaning "send" now that the field is a textarea.
+   *
+   * The one-line field this replaced submitted its form on Enter for free; a
+   * textarea takes that key for a newline instead, which would quietly turn the
+   * send key into the line-break key for everyone used to the old box. So Enter
+   * still sends, and Shift+Enter is how the second line is written — the
+   * arrangement every other composer uses.
+   *
+   * `isComposing` guards the IME: mid-composition Enter is how a Japanese or
+   * Chinese keyboard accepts a candidate, and stealing it there would send a
+   * half-typed message.
+   */
+  function submitOnEnter(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
+    submit(event);
   }
 
   function dismissStarterPrompt() {
@@ -388,14 +408,20 @@ export default function AgentComposer() {
           />
         ) : null}
         <form className="prompt-form" onSubmit={submit}>
-          <AgentInput
-            agentId="prompt-input"
-            agentLabel="Instruction text box"
-            agentDescription="Enter a message for the browser agent."
-            value={prompt}
-            onChange={(event) => setPrompt(event.currentTarget.value)}
-            placeholder="Ask about this page…"
-          />
+          {/* The mirror carries a copy of the text; see `.prompt-field` in the
+              stylesheet for why the growth is done in CSS rather than here. */}
+          <div className="prompt-field" data-value={prompt}>
+            <AgentTextarea
+              agentId="prompt-input"
+              agentLabel="Instruction text box"
+              agentDescription="Enter a message for the browser agent. Enter sends it; Shift+Enter starts a new line."
+              value={prompt}
+              rows={1}
+              onChange={(event) => setPrompt(event.currentTarget.value)}
+              onKeyDown={submitOnEnter}
+              placeholder="Ask about this page…"
+            />
+          </div>
           <AgentButton
             agentId="send-prompt"
             agentLabel="Send to agent"

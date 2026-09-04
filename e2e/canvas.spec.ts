@@ -131,6 +131,39 @@ test('queues a final mocked speech transcript from the editable preview', async 
   }, { timeout: 10_000 }).toContain('Make the main action coral');
 });
 
+/**
+ * The composer's field is a textarea so a pasted paragraph is readable before it
+ * is sent, which costs Enter its free form submit. Both halves of the trade are
+ * checked here: Shift+Enter must open a line rather than send, and Enter must
+ * still send — the regression that would quietly turn the send key into the
+ * line-break key.
+ */
+test('sends the typed prompt on Enter and opens a line on Shift+Enter', async ({ page }) => {
+  await installModelContext(page);
+  await page.goto('/');
+  const preview = page.frameLocator('iframe[title="Editable WebMCP application preview"]');
+  await acceptTerms(preview);
+  const field = preview.getByRole('textbox', { name: 'Instruction text box' });
+  await expect(field).toBeVisible({ timeout: 90_000 });
+
+  await field.click();
+  await field.type('first line');
+  await field.press('Shift+Enter');
+  await field.type('second line');
+  expect(await field.inputValue()).toBe('first line\nsecond line');
+
+  // The box grew with the second line rather than scrolling it out of sight.
+  const twoLines = await field.evaluate((node) => node.getBoundingClientRect().height);
+  expect(twoLines).toBeGreaterThan(44);
+
+  await field.press('Enter');
+  await expect.poll(async () => {
+    const result = await callTool(page, 'poll_user_messages', { afterId: 0 }) as { messages: { text: string }[] };
+    return result.messages.map((message) => message.text);
+  }, { timeout: 10_000 }).toContain('first line\nsecond line');
+  expect(await field.inputValue()).toBe('');
+});
+
 test('dims the whole preview while a timed highlight blinks between two colors', async ({ page }) => {
   await installModelContext(page);
   await page.goto('/');
