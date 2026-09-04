@@ -4,8 +4,8 @@ import type { WebContainer, WebContainerProcess } from '@webcontainer/api';
 import type { FileMap, ProjectChange, ProjectFileDescriptor, RuntimePhase } from './canvas-types';
 import { toFileTree } from './file-tree';
 import { hashText } from './hash';
-import { loadSnapshot, saveSnapshot } from './persistence';
-import { extractOverlay, isEditablePath, listVisiblePaths, normalizeProjectPath, validateChanges, validateOverlay } from './project-policy';
+import { loadSnapshot, restorableFiles, saveSnapshot } from './persistence';
+import { extractOverlay, isEditablePath, listVisiblePaths, normalizeProjectPath, overlayHash, validateChanges, validateOverlay } from './project-policy';
 import { fetchRuntimeSnapshot, type RuntimeSnapshotResult } from './runtime-snapshot';
 import { cloneStarterFiles, STARTER_FILES } from './starter-project';
 
@@ -82,7 +82,7 @@ export class ProjectController {
       const apiModule = import('@webcontainer/api');
 
       const snapshot = await loadSnapshot();
-      this.files = mergeSnapshot(snapshot?.files);
+      this.files = mergeSnapshot(await restorableFiles(snapshot));
       this.state.revision = snapshot?.revision ?? 0;
       this.state.versionId = snapshot?.versionId ?? null;
 
@@ -244,7 +244,7 @@ export class ProjectController {
       if (exitCode !== 0) throw new Error(exitCode === 124 ? `Validation timed out. ${diagnostics}` : diagnostics || 'Project validation failed.');
 
       this.state.revision += 1;
-      await saveSnapshot(this.state.revision, this.files, this.state.versionId);
+      await this.persist();
       this.emit({ phase: 'ready', detail: 'Live preview ready', revision: this.state.revision });
       return {
         ok: true,
@@ -292,7 +292,7 @@ export class ProjectController {
       this.files = files;
       this.state.revision += 1;
       this.state.versionId = versionId;
-      await saveSnapshot(this.state.revision, this.files, versionId);
+      await this.persist();
       this.emit({ phase: 'ready', detail, revision: this.state.revision, versionId });
       return { ok: true, revision: this.state.revision, versionId };
     } catch (error) {
@@ -315,8 +315,17 @@ export class ProjectController {
    */
   async markPublished(versionId: string | null): Promise<void> {
     this.state.versionId = versionId;
-    await saveSnapshot(this.state.revision, this.files, versionId);
+    await this.persist();
     this.emit({ versionId });
+  }
+
+  /**
+   * Writes the working copy to IndexedDB, stamped with the starter this build
+   * ships. `restorableFiles()` reads that stamp back on the next boot to tell a
+   * draft worth restoring from a clean checkout a later release has moved past.
+   */
+  private async persist(): Promise<void> {
+    await saveSnapshot(this.state.revision, this.files, this.state.versionId, await overlayHash(starterOverlay()));
   }
 
   private async restoreFiles(target: FileMap, removeEditable = false): Promise<void> {
