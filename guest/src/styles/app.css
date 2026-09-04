@@ -367,6 +367,9 @@ h1 { max-width: 760px; margin: 0; font-family: var(--serif); font-size: var(--te
 .mic-dot { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: currentColor; }
 .composer-notice { margin: 8px 2px 0; color: var(--muted); font-family: var(--mono); font-size: var(--text-xs); letter-spacing: .01em; }
 .agent-composer.disconnected { padding: 14px 16px 13px; }
+.agent-composer.idle { border-color: var(--line-strong); }
+.composer-idle { margin: 0 0 10px; padding: 0 0 9px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: var(--text-sm); line-height: 1.5; }
+.composer-idle strong { display: block; color: var(--ink); font-weight: 700; }
 .agent-composer.disconnected .composer-notice { margin-top: 9px; }
 .composer-headline { margin: 0 0 6px; font-size: var(--text-sm); font-weight: 700; letter-spacing: -.01em; }
 .composer-body { margin: 0; color: var(--muted); font-size: var(--text-sm); line-height: 1.55; }
@@ -387,7 +390,6 @@ h1 { max-width: 760px; margin: 0; font-family: var(--serif); font-size: var(--te
 .composer-footer .composer-notice { flex: 1 1 auto; min-width: 0; }
 .starter-reopen { flex: 0 0 auto; margin-top: 8px; padding: 0; border: 0; background: none; color: var(--muted); font-family: var(--mono); font-size: var(--text-xs); letter-spacing: .01em; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .starter-reopen:hover { color: var(--ink); }
-.agent-composer.disconnected .starter-reopen { display: block; }
 
 .record-card-cta { width: 100%; margin-top: 20px; }
 .connect-panel { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }

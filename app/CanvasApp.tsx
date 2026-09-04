@@ -29,6 +29,7 @@ import {
   unpublishVersion,
   writeVersionParam,
 } from '@/lib/version-client';
+import { getAgentActivity, hasAgentActed, subscribeAgentActivity } from '@/lib/agent-activity';
 import {
   isNativeWebMcp,
   messageQueue,
@@ -73,10 +74,36 @@ function emitHostEvent(event: string, payload?: unknown): void {
   }
 }
 
+/**
+ * The `mcp.status` answer, in one place because two code paths send it: the
+ * reply to the guest's manifest, and the push for a bridge that attaches late.
+ *
+ * `connected` keeps its original meaning — a bridge is present — because
+ * versions published before this existed read that field and nothing else, and
+ * a published app is frozen code we cannot go back and edit. The finer state
+ * rides alongside it: `active` is the honest one, true only once a client has
+ * called a tool.
+ */
+function agentStatusPayload(bridge: boolean): Record<string, unknown> {
+  const activity = getAgentActivity();
+  return {
+    connected: bridge,
+    bridge,
+    active: bridge && activity.seen,
+    lastToolAt: activity.lastToolAt,
+  };
+}
+
 export default function CanvasApp() {
   const controller = useMemo(() => getProjectController(), []);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const nativeWebMcp = useSyncExternalStore(subscribeNativeWebMcp, isNativeWebMcp, () => false);
+  /**
+   * Whether any tool has actually been called. A bridge can be present with no
+   * client behind it, so this is what separates "an agent could attach" from
+   * "an agent is here" — see lib/agent-activity. Sticky, so this flips once.
+   */
+  const agentActed = useSyncExternalStore(subscribeAgentActivity, hasAgentActed, () => false);
   const [runtime, setRuntime] = useState(initialControllerState);
   const [versions, setVersions] = useState<AppVersion[]>([]);
   const [versionsError, setVersionsError] = useState<string | null>(null);
@@ -342,7 +369,7 @@ export default function CanvasApp() {
         // moment it can hear anything. Whether a real MCP client is attached
         // decides what the guest's composer renders, so it is answered here
         // rather than pushed blindly when the iframe's src is set.
-        emitHostEvent('mcp.status', { connected: nativeWebMcp });
+        emitHostEvent('mcp.status', agentStatusPayload(nativeWebMcp));
       }
       if (event.data.type === 'host-request' && typeof payload?.id === 'string' && typeof payload?.method === 'string') {
         const { id, method } = payload as { id: string; method: string };
@@ -358,7 +385,7 @@ export default function CanvasApp() {
     }
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [previewOrigin, capabilities, previewIdentity, nativeWebMcp]);
+  }, [previewOrigin, capabilities, previewIdentity, nativeWebMcp, agentActed]);
 
   /**
    * The `manifest` handler above answers `mcp.status` for the usual order: a
@@ -369,8 +396,8 @@ export default function CanvasApp() {
    */
   useEffect(() => {
     if (!nativeWebMcp) return;
-    emitHostEvent('mcp.status', { connected: true });
-  }, [nativeWebMcp]);
+    emitHostEvent('mcp.status', agentStatusPayload(true));
+  }, [nativeWebMcp, agentActed]);
 
   /**
    * Tools are already registered (see lib/webmcp-runtime). All this does is

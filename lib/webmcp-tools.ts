@@ -1,5 +1,6 @@
 'use client';
 
+import { noteToolCall } from './agent-activity';
 import type { ProjectController } from './project-controller';
 import type { AppVersion, CapabilityGrant, RouteDescriptor, ToolDefinition, UiElementDescriptor } from './canvas-types';
 import type { HealthSnapshot } from './host-capabilities';
@@ -74,6 +75,10 @@ function tool(
     inputSchema,
     annotations: { readOnlyHint, untrustedContentHint },
     execute: async (input) => {
+      // The only unambiguous proof that a WebMCP client is real — a bridge can
+      // be injected with nobody behind it, but this runs because someone
+      // called. Recorded before the body so a throwing tool still counts.
+      noteToolCall(name);
       try {
         return await execute(input ?? {});
       } catch (error) {

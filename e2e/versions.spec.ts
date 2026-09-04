@@ -76,10 +76,12 @@ test('publishes the live app from the header and switches back to it', async ({ 
 });
 
 test('keeps talking to the preview across a switch that re-creates the frame', async ({ page, request }) => {
-  // A WebMCP client is attached for the whole test, so the guest's composer
-  // must render its input the entire time. It renders "No agent is connected."
-  // instead whenever the host's `mcp.status` answer fails to arrive — which is
-  // what a stale preview window looks like from inside the iframe.
+  // A WebMCP bridge is present for the whole test, so the guest's composer
+  // must render its input the entire time. It renders the unsupported-browser
+  // panel instead whenever the host's `mcp.status` answer fails to arrive —
+  // which is what a stale preview window looks like from inside the iframe.
+  // (No tool is ever called here, so the composer sits in its idle state; the
+  // input is present either way, which is what this test is about.)
   await installModelContext(page);
 
   const ready = page.locator('.preview-stage[data-phase="ready"]');
@@ -137,7 +139,7 @@ test('keeps talking to the preview across a switch that re-creates the frame', a
   // 1.5s before concluding it is on its own, so wait on the composer itself —
   // an absent offline panel this early only means the guest is still waiting.
   await expect(composer).toBeVisible({ timeout: 15_000 });
-  await expect(preview.getByText('No agent is connected.')).toHaveCount(0);
+  await expect(preview.getByText('This browser does not support WebMCP.')).toHaveCount(0);
 
   // The same channel carries every `host-request` response. Without it the
   // explorer sits on its spinner until the guest's own 30s timeout — and the

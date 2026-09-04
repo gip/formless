@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AppVersion } from '../lib/canvas-types';
 import { createCanvasTools, type HealthAccess } from '../lib/webmcp-tools';
+import {
+  getAgentActivity,
+  hasAgentActed,
+  resetAgentActivity,
+  subscribeAgentActivity,
+} from '../lib/agent-activity';
 import type { HealthSnapshot } from '../lib/host-capabilities';
 import { UserMessageQueue } from '../lib/message-queue';
 import type { HealthExportDocument } from '../lib/health/types';
@@ -490,5 +496,74 @@ describe('health record tools', () => {
       ok: false,
       error: expect.stringContaining('Pass refs'),
     });
+  });
+});
+
+describe('agent activity', () => {
+  function activityTools() {
+    return createCanvasTools({
+      project: {} as never,
+      messages: new UserMessageQueue(),
+      getElements: () => [],
+      getRoutes: () => [],
+      sendPreviewCommand: vi.fn(),
+      speech: speechStub(),
+      health: healthStub(),
+      versions: versionStub(),
+    });
+  }
+
+  it('stays false until a tool is actually called', async () => {
+    resetAgentActivity();
+    const tools = activityTools();
+
+    // Building and registering the tools is not evidence of anything: a bridge
+    // exists on every frame of the macOS shell whether or not a client does.
+    expect(hasAgentActed()).toBe(false);
+    expect(getAgentActivity()).toMatchObject({ seen: false, calls: 0, lastToolName: null });
+
+    await tools.find((tool) => tool.name === 'get_ui_elements')!.execute({});
+
+    expect(hasAgentActed()).toBe(true);
+    expect(getAgentActivity()).toMatchObject({ seen: true, calls: 1, lastToolName: 'get_ui_elements' });
+    expect(getAgentActivity().lastToolAt).toBeTypeOf('number');
+  });
+
+  it('counts a tool that throws — a failed call still proves a caller', async () => {
+    resetAgentActivity();
+    // No version operations, so this one rejects inside the wrapper.
+    const tools = createCanvasTools({
+      project: {} as never,
+      messages: new UserMessageQueue(),
+      getElements: () => [],
+      getRoutes: () => [],
+      sendPreviewCommand: vi.fn(),
+      speech: speechStub(),
+      health: healthStub(),
+      versions: {
+        ...versionStub(),
+        list: async () => { throw new Error('Version controls are not ready yet.'); },
+      },
+    });
+
+    expect(await tools.find((tool) => tool.name === 'list_app_versions')!.execute({}))
+      .toMatchObject({ ok: false });
+    expect(getAgentActivity()).toMatchObject({ seen: true, calls: 1, lastToolName: 'list_app_versions' });
+  });
+
+  it('notifies subscribers on each call and stops after unsubscribe', async () => {
+    resetAgentActivity();
+    const tools = activityTools();
+    const listener = vi.fn();
+    const unsubscribe = subscribeAgentActivity(listener);
+
+    await tools.find((tool) => tool.name === 'get_ui_elements')!.execute({});
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    unsubscribe();
+    await tools.find((tool) => tool.name === 'get_ui_elements')!.execute({});
+    expect(listener).toHaveBeenCalledTimes(1);
+    // The store keeps counting; only the notification stopped.
+    expect(getAgentActivity().calls).toBe(2);
   });
 });
