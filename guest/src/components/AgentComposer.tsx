@@ -16,8 +16,23 @@ import { AgentButton, AgentInput, AgentTarget, onHostEvent, sendUserMessage } fr
  * All of which is true only when an agent is actually attached. With no MCP
  * client on the other end nothing polls the queue, so typing into the box is a
  * message to nobody — worse than no box at all, because it looks like it worked.
- * So the composer asks the host whether a real client is connected and, when it
- * is not, spends the same panel explaining how to connect one instead.
+ * So the composer asks the host what it can see, and renders one of three
+ * panels:
+ *
+ * - No bridge at all (`connected: false`) — the browser has no WebMCP. The
+ *   panel says so and names the browsers that do, because nothing the user
+ *   types here can go anywhere.
+ * - A bridge, but no tool has ever been called (`active: false`) — the tools
+ *   are registered and reachable, and no client has looked. The composer works,
+ *   since anything queued is delivered on the first poll, but it says plainly
+ *   that nobody is listening yet.
+ * - A client has called a tool (`active: true`) — the ordinary composer.
+ *
+ * The middle state exists because bridge presence is not evidence of an agent:
+ * the macOS shell injects `document.modelContext` for every frame whether or
+ * not a session is attached, and an extension attaches on origin grant. The
+ * protocol reports no client arriving and none leaving, so the first tool call
+ * is the only honest proof — see lib/agent-activity in the host.
  *
  * Either way the panel opens with the starter prompt. An attached client does
  * nothing on its own — it has not read the website prompt and is not polling —
@@ -213,6 +228,14 @@ export default function AgentComposer() {
   const [notice, setNotice] = useState('Ask for anything on this page.');
   const [listening, setListening] = useState(false);
   const [connected, setConnected] = useState<boolean | null>(null);
+  /**
+   * Whether a client has actually called a tool. The host can only tell us a
+   * bridge exists; nothing in the protocol reports an agent arriving, and the
+   * macOS shell injects its bridge whether or not a session is attached. So
+   * this stays false through the state where the tools are registered and
+   * nobody has ever looked, which is the state worth naming.
+   */
+  const [active, setActive] = useState(false);
   const [promptDismissed, setPromptDismissed] = useState(false);
   const recognitionRef = useRef<Recognition | null>(null);
   const RecognitionCtor = useMemo(
@@ -222,7 +245,11 @@ export default function AgentComposer() {
 
   useEffect(() => {
     const stop = onHostEvent('mcp.status', (payload) => {
-      setConnected((payload as { connected?: unknown } | undefined)?.connected === true);
+      const status = payload as { connected?: unknown; active?: unknown } | undefined;
+      setConnected(status?.connected === true);
+      // Absent from hosts older than this field, which is the same as no agent
+      // having acted — so the default reads correctly rather than guessing true.
+      setActive(status?.active === true);
     });
     // Nothing renders until this resolves one way or the other, so the timeout
     // is what guarantees the panel appears at all.
@@ -237,7 +264,9 @@ export default function AgentComposer() {
     event.preventDefault();
     if (!prompt.trim()) return;
     sendUserMessage(prompt, 'typed');
-    setNotice('Sent to the agent queue.');
+    setNotice(active
+      ? 'Sent to the agent queue.'
+      : 'Queued. It will be delivered when an agent picks it up.');
     setPrompt('');
   }
 
@@ -269,7 +298,9 @@ export default function AgentComposer() {
         const transcript = event.results[index][0].transcript.trim();
         setPrompt(transcript);
         sendUserMessage(transcript, 'speech');
-        setNotice('Speech captured and sent to the agent queue.');
+        setNotice(active
+          ? 'Speech captured and sent to the agent queue.'
+          : 'Speech captured and queued for the next agent to pick it up.');
       }
     };
     recognition.onend = () => setListening(false);
@@ -291,16 +322,16 @@ export default function AgentComposer() {
     return (
       <AgentTarget
         agentId="agent-composer-offline"
-        label="How to connect an agent"
-        description="Explains that this page is WebMCP-enabled and that no agent is currently attached."
+        label="WebMCP is not supported here"
+        description="Explains that this browser exposes no WebMCP bridge, and which browsers do."
       >
-        <aside className="agent-composer disconnected" aria-label="How to connect an agent">
-          <p className="composer-headline">No agent is connected.</p>
+        <aside className="agent-composer disconnected" aria-label="WebMCP is not supported here">
+          <p className="composer-headline">This browser does not support WebMCP.</p>
           <p className="composer-body">
             Formless Health is WebMCP-enabled: an AI assistant can read this page, point at
-            what it is talking about, and act on your behalf — but only once one is attached.
-            Open this page in ChatGPT with either <strong>Terra</strong> or <strong>Sol</strong>
-            {' '}to use those features.
+            what it is talking about, and act on your behalf. This browser exposes no bridge
+            for one to connect through. Open the page in <strong>Codex</strong> or
+            {' '}<strong>Chrome</strong> to use those features.
           </p>
           <StarterPrompt
             dismissed={promptDismissed}
@@ -319,7 +350,14 @@ export default function AgentComposer() {
       label="Ask the agent"
       description="Where the user types or speaks a request for the browser agent."
     >
-      <aside className="agent-composer" aria-label="Ask the agent">
+      <aside className={active ? 'agent-composer' : 'agent-composer idle'} aria-label="Ask the agent">
+        {active ? null : (
+          <p className="composer-idle" role="status">
+            <strong>Agent tools are ready, but nothing has used them yet.</strong> This page
+            has registered its tools with the browser; no assistant has called one so far.
+            Anything you send waits here until one does.
+          </p>
+        )}
         {promptDismissed ? null : (
           <StarterPrompt
             dismissed={false}
